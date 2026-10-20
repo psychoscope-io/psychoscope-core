@@ -63,64 +63,74 @@ func (p *Persister) Run(ctx context.Context) {
 	defer pruneTick.Stop()
 
 	batch := make([]*psychoscopev1.Alerta, 0, p.cfg.BatchSize)
-	flush := func() {
-		if len(batch) == 0 {
-			return
-		}
-		// Contexto proprio: a gravacao final nao pode ser cancelada pelo encerramento.
-		wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := p.st.Insert(wctx, batch); err != nil {
-			p.log.Error("falha ao gravar alertas", "n", len(batch), "err", err)
-		}
-		batch = batch[:0]
-	}
-	prune := func() {
-		wctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var cutoff time.Time
-		if p.cfg.Retention > 0 {
-			cutoff = time.Now().Add(-p.cfg.Retention)
-		}
-		if n, err := p.st.Prune(wctx, cutoff, p.cfg.MaxAlerts); err != nil {
-			p.log.Error("falha ao podar alertas", "err", err)
-		} else if n > 0 {
-			p.log.Info("alertas antigos removidos", "n", n)
-		}
-	}
-
-	prune()
+	p.prune()
 	for {
 		select {
 		case a, ok := <-sub.C:
 			if !ok {
-				flush()
+				p.flush(batch)
 				return
 			}
-			batch = append(batch, a)
-			if len(batch) >= p.cfg.BatchSize {
-				flush()
+			if batch = append(batch, a); len(batch) >= p.cfg.BatchSize {
+				batch = p.flush(batch)
 			}
 		case <-flushTick.C:
 			p.dropped.Store(sub.Dropped())
-			flush()
+			batch = p.flush(batch)
 		case <-pruneTick.C:
-			prune()
+			p.prune()
 		case <-ctx.Done():
-			for { // esvazia o que ja estava na fila
-				select {
-				case a, ok := <-sub.C:
-					if !ok {
-						flush()
-						return
-					}
-					batch = append(batch, a)
-				default:
-					p.dropped.Store(sub.Dropped())
-					flush()
-					return
-				}
+			p.drain(sub, batch)
+			return
+		}
+	}
+}
+
+// flush grava o lote e devolve o lote vazio, reaproveitando a memoria. Usa contexto
+// proprio: a gravacao final nao pode ser cancelada pelo encerramento.
+func (p *Persister) flush(batch []*psychoscopev1.Alerta) []*psychoscopev1.Alerta {
+	if len(batch) == 0 {
+		return batch
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := p.st.Insert(ctx, batch); err != nil {
+		p.log.Error("falha ao gravar alertas", "n", len(batch), "err", err)
+	}
+	return batch[:0]
+}
+
+// prune aplica a retencao por idade e por quantidade.
+func (p *Persister) prune() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var cutoff time.Time
+	if p.cfg.Retention > 0 {
+		cutoff = time.Now().Add(-p.cfg.Retention)
+	}
+	n, err := p.st.Prune(ctx, cutoff, p.cfg.MaxAlerts)
+	switch {
+	case err != nil:
+		p.log.Error("falha ao podar alertas", "err", err)
+	case n > 0:
+		p.log.Info("alertas antigos removidos", "n", n)
+	}
+}
+
+// drain esvazia o que ja estava na fila da assinatura e faz a ultima gravacao.
+func (p *Persister) drain(sub *alerts.Subscription, batch []*psychoscopev1.Alerta) {
+	for {
+		select {
+		case a, ok := <-sub.C:
+			if !ok {
+				p.flush(batch)
+				return
 			}
+			batch = append(batch, a)
+		default:
+			p.dropped.Store(sub.Dropped())
+			p.flush(batch)
+			return
 		}
 	}
 }
