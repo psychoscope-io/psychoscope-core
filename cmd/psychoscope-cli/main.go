@@ -1,24 +1,32 @@
 // Command psychoscope-cli e o cliente do canal de controle (ctl.sock).
-// A TUI Bubbletea (Fase 5) reutiliza internal/ctl; por ora ha subcomandos simples:
 //
-//	psychoscope-cli [--ctl-socket S] list
+//	psychoscope-cli [--ctl-socket S]                       TUI interativa (terminal)
+//	psychoscope-cli [--ctl-socket S] list                  tabela de modulos
 //	psychoscope-cli [--ctl-socket S] cmd <modulo> pause|resume|reconfigure|stop [chave=valor ...]
-//	psychoscope-cli [--ctl-socket S] alerts
+//	psychoscope-cli [--ctl-socket S] alerts [--no-history] stream de alertas (Ctrl+C sai)
 package main
 
 import (
-	"flag"
+	"context"
 	"fmt"
-	"net"
 	"os"
+	"os/signal"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/Bandeira27/psychoscope-core/internal/config"
 	"github.com/Bandeira27/psychoscope-core/internal/ctl"
+	"github.com/Bandeira27/psychoscope-core/internal/tui"
 	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	"golang.org/x/term"
 )
+
+const usage = `uso: psychoscope-cli [--ctl-socket S] [comando]
+  (sem comando)                       abre a TUI interativa
+  list                                lista os modulos
+  cmd <modulo> pause|resume|reconfigure|stop [k=v ...]
+  alerts [--no-history]               acompanha os alertas`
 
 var actions = map[string]psychoscopev1.ComandoControle_TipoAcao{
 	"pause":       psychoscopev1.ComandoControle_PAUSAR,
@@ -28,40 +36,43 @@ var actions = map[string]psychoscopev1.ComandoControle_TipoAcao{
 }
 
 func main() {
-	e := config.OSEnv()
-	def := config.EnvCtlSocket
-	sock := flag.String("ctl-socket", firstNonEmpty(os.Getenv(def), config.DefaultSocketDir(e)+"/ctl.sock"), "socket de controle do Core")
-	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "uso: psychoscope-cli [--ctl-socket S] list | cmd <modulo> pause|resume|reconfigure|stop [k=v ...] | alerts")
+	args := os.Args[1:]
+	sock := firstNonEmpty(os.Getenv(config.EnvCtlSocket), config.DefaultSocketDir(config.OSEnv())+"/ctl.sock")
+	if len(args) >= 2 && args[0] == "--ctl-socket" {
+		sock, args = args[1], args[2:]
+	} else if len(args) >= 1 && strings.HasPrefix(args[0], "--ctl-socket=") {
+		sock, args = strings.TrimPrefix(args[0], "--ctl-socket="), args[1:]
 	}
-	flag.Parse()
-	if flag.NArg() == 0 {
-		flag.Usage()
-		os.Exit(2)
+	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
+		fmt.Println(usage)
+		return
 	}
-	if err := run(*sock, flag.Args()); err != nil {
+	if err := run(&ctl.Client{Path: sock}, args); err != nil {
 		fmt.Fprintln(os.Stderr, "psychoscope-cli:", err)
 		os.Exit(1)
 	}
 }
 
-func run(sock string, args []string) error {
-	conn, err := net.DialTimeout("unix", sock, 3*time.Second)
-	if err != nil {
-		return err
+func run(cl *ctl.Client, args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	if len(args) == 0 {
+		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+			return fmt.Errorf("a TUI requer um terminal interativo\n%s", usage)
+		}
+		return tui.Run(tui.ClientBackend{Client: cl})
 	}
-	defer conn.Close()
 
 	switch args[0] {
 	case "list":
-		r, err := call(conn, &psychoscopev1.RequisicaoControle{IdRequisicao: "list",
-			Pedido: &psychoscopev1.RequisicaoControle_ListarModulos{ListarModulos: &psychoscopev1.PedidoListarModulos{}}})
+		mods, err := cl.List(ctx)
 		if err != nil {
 			return err
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "MODULO\tESTADO\tPID\tREINICIOS\tEVENTOS\tPACOTES\tDESCARTES\tULTIMO CONTATO\tERRO")
-		for _, m := range r.GetModulos().GetModulos() {
+		for _, m := range mods {
 			contato := "-"
 			if m.UltimoContato != nil {
 				contato = m.UltimoContato.AsTime().Local().Format(time.TimeOnly)
@@ -88,47 +99,35 @@ func run(sock string, args []string) error {
 			}
 			params[k] = v
 		}
-		if _, err := call(conn, &psychoscopev1.RequisicaoControle{IdRequisicao: "cmd",
-			Pedido: &psychoscopev1.RequisicaoControle_EnviarComando{EnviarComando: &psychoscopev1.PedidoEnviarComando{
-				IdModulo: args[1], Acao: acao, Parametros: params}}}); err != nil {
+		if err := cl.Command(ctx, args[1], acao, params); err != nil {
 			return err
 		}
 		fmt.Println("ok")
 		return nil
 
 	case "alerts":
-		if _, err := call(conn, &psychoscopev1.RequisicaoControle{IdRequisicao: "alerts",
-			Pedido: &psychoscopev1.RequisicaoControle_AssinarAlertas{AssinarAlertas: &psychoscopev1.PedidoAssinarAlertas{}}}); err != nil {
+		history := !(len(args) > 1 && args[1] == "--no-history")
+		st, err := cl.StreamAlerts(ctx, history)
+		if err != nil {
 			return err
 		}
-		for {
-			r, err := ctl.ReadResponse(conn)
-			if err != nil {
-				return err
+		defer st.Close()
+		for a := range st.C {
+			ts := "--:--:--"
+			if a.Timestamp != nil {
+				ts = a.Timestamp.AsTime().Local().Format(time.TimeOnly)
 			}
-			if a := r.GetAlerta(); a != nil {
-				fmt.Printf("%s [%s] %s: %s\n", a.Timestamp.AsTime().Local().Format(time.TimeOnly),
-					strings.TrimPrefix(a.Severidade.String(), "SEVERIDADE_"), a.Regra, a.Descricao)
-			}
+			fmt.Printf("%s [%s] %s: %s\n", ts, strings.TrimPrefix(a.Severidade.String(), "SEVERIDADE_"), a.Regra, a.Descricao)
 		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err := st.Err(); err != nil {
+			return fmt.Errorf("stream encerrado: %w", err)
+		}
+		return nil
 	}
-	return fmt.Errorf("subcomando desconhecido %q", args[0])
-}
-
-func call(conn net.Conn, req *psychoscopev1.RequisicaoControle) (*psychoscopev1.RespostaControle, error) {
-	_ = conn.SetDeadline(time.Now().Add(35 * time.Second))
-	if err := ctl.WriteRequest(conn, req); err != nil {
-		return nil, err
-	}
-	r, err := ctl.ReadResponse(conn)
-	if err != nil {
-		return nil, err
-	}
-	_ = conn.SetDeadline(time.Time{})
-	if !r.Sucesso {
-		return nil, fmt.Errorf("%s", r.MensagemErro)
-	}
-	return r, nil
+	return fmt.Errorf("subcomando desconhecido %q\n%s", args[0], usage)
 }
 
 func firstNonEmpty(vs ...string) string {

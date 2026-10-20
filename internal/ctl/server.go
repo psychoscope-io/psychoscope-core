@@ -237,7 +237,11 @@ func (c *clientConn) dispatch(req *psychoscopev1.RequisicaoControle) error {
 		if c.sub != nil {
 			return c.send(fail(id, "assinatura de alertas ja ativa nesta conexao"))
 		}
-		c.sub = c.srv.cfg.Alerts.Subscribe(256)
+		if p.AssinarAlertas.GetIncluirHistorico() {
+			c.sub = c.srv.cfg.Alerts.SubscribeWithHistory(256)
+		} else {
+			c.sub = c.srv.cfg.Alerts.Subscribe(256)
+		}
 		if err := c.send(&psychoscopev1.RespostaControle{IdRequisicaoReferencia: id, Sucesso: true}); err != nil {
 			return err
 		}

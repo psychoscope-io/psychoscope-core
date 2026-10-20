@@ -70,7 +70,7 @@ func TestEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.Config{
 		SocketPath: filepath.Join(dir, "run", "core.sock"), CtlSocketPath: filepath.Join(dir, "run", "ctl.sock"),
-		SocketMode: 0o660, StatusInterval: time.Second, CommandTimeout: 2 * time.Second, LogLevel: "debug",
+		SocketMode: 0o660, StatusInterval: time.Second, CommandTimeout: 2 * time.Second, LogLevel: "debug", Detection: config.DefaultDetection(),
 		Modules: []config.ModuleSpec{{
 			ID: "mod-net-sensor", Path: os.Args[0], Args: []string{"-test.run=^TestHelperProcess$"}, Env: []string{"PSY_HELPER=1"},
 			MinBackoff: 50 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, StableAfter: time.Minute,
@@ -149,7 +149,7 @@ func TestSecondInstanceRefusesToStart(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config.Config{
 		SocketPath: filepath.Join(dir, "core.sock"), CtlSocketPath: filepath.Join(dir, "ctl.sock"),
-		SocketMode: 0o660, StatusInterval: time.Second, CommandTimeout: time.Second, LogLevel: "info",
+		SocketMode: 0o660, StatusInterval: time.Second, CommandTimeout: time.Second, LogLevel: "info", Detection: config.DefaultDetection(),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -166,4 +166,51 @@ func TestSecondInstanceRefusesToStart(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+// Telemetria real de um processo-modulo -> motor de deteccao -> alerta no ctl.sock.
+func TestDetectionAlertReachesControlChannel(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{
+		SocketPath: filepath.Join(dir, "core.sock"), CtlSocketPath: filepath.Join(dir, "ctl.sock"),
+		SocketMode: 0o660, StatusInterval: time.Second, CommandTimeout: 2 * time.Second, LogLevel: "info",
+		Detection: config.DefaultDetection(),
+		Modules: []config.ModuleSpec{{
+			ID: "mod-net-sensor", Path: os.Args[0], Args: []string{"-test.run=^TestHelperProcess$"}, Env: []string{"PSY_HELPER=1", "PSY_SCAN=1"},
+			MinBackoff: 50 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, StableAfter: time.Minute,
+			ConnectTimeout: 5 * time.Second, StopGrace: 3 * time.Second,
+		}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	cl := &ctl.Client{Path: cfg.CtlSocketPath}
+	var stream *ctl.AlertStream
+	var err error
+	for i := 0; i < 100; i++ {
+		// history=true: o alerta pode ter sido gerado antes da assinatura
+		if stream, err = cl.StreamAlerts(context.Background(), true); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+
+	select {
+	case a := <-stream.C:
+		if a.Regra != "net.scan.syn" || a.Contexto["origem"] != "10.0.0.66" || a.Contexto["destino"] != "10.0.0.2" ||
+			a.IdModuloOrigem != "mod-net-sensor" || a.IdAlerta == "" || a.Timestamp == nil {
+			t.Fatalf("alerta inesperado: %v", a)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("nenhum alerta chegou ao canal de controle")
+	}
 }

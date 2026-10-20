@@ -69,3 +69,29 @@ func TestConcurrentPublishSubscribeClose(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestHistoryRingAndReplay(t *testing.T) {
+	b := NewBusWithHistory(3)
+	for _, id := range []string{"1", "2", "3", "4", "5"} {
+		b.Publish(&psychoscopev1.Alerta{IdAlerta: id})
+	}
+	rec := b.Recent()
+	if len(rec) != 3 || rec[0].IdAlerta != "3" || rec[2].IdAlerta != "5" {
+		t.Fatalf("historico: %v", rec)
+	}
+	sub := b.SubscribeWithHistory(2)
+	b.Publish(&psychoscopev1.Alerta{IdAlerta: "6"})
+	var got []string
+	for i := 0; i < 4; i++ {
+		got = append(got, (<-sub.C).IdAlerta)
+	}
+	if got[0] != "3" || got[1] != "4" || got[2] != "5" || got[3] != "6" {
+		t.Fatalf("replay + ao vivo sem lacunas/duplicatas: %v", got)
+	}
+	if plain := b.Subscribe(1); len(plain.C) != 0 {
+		t.Fatal("Subscribe simples nao reenvia historico")
+	}
+	if none := NewBusWithHistory(0); len(none.Recent()) != 0 {
+		t.Fatal("sem historico")
+	}
+}

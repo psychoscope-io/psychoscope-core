@@ -12,9 +12,14 @@ import (
 // Bus distribui alertas a todos os assinantes sem nunca bloquear o publicador:
 // um assinante lento perde alertas (contabilizados em Dropped).
 type Bus struct {
-	mu   sync.Mutex
-	subs map[*Subscription]struct{}
+	mu      sync.Mutex
+	subs    map[*Subscription]struct{}
+	history []*psychoscopev1.Alerta // anel dos ultimos alertas, do mais antigo ao mais novo
+	histCap int
 }
+
+// DefaultHistory e a quantidade de alertas recentes retidos em memoria.
+const DefaultHistory = 256
 
 // Subscription e uma assinatura ativa.
 type Subscription struct {
@@ -25,19 +30,44 @@ type Subscription struct {
 	once    sync.Once
 }
 
-// NewBus cria um barramento vazio.
-func NewBus() *Bus { return &Bus{subs: map[*Subscription]struct{}{}} }
+// NewBus cria um barramento vazio que retem os DefaultHistory alertas mais recentes.
+func NewBus() *Bus { return NewBusWithHistory(DefaultHistory) }
+
+// NewBusWithHistory cria um barramento que retem os n alertas mais recentes (0 = sem historico).
+func NewBusWithHistory(n int) *Bus {
+	return &Bus{subs: map[*Subscription]struct{}{}, histCap: max(n, 0)}
+}
+
+// Recent devolve uma copia do historico, do mais antigo ao mais novo.
+func (b *Bus) Recent() []*psychoscopev1.Alerta {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]*psychoscopev1.Alerta(nil), b.history...)
+}
 
 // Subscribe cria uma assinatura com buffer de tamanho buffer (minimo 1).
-func (b *Bus) Subscribe(buffer int) *Subscription {
+func (b *Bus) Subscribe(buffer int) *Subscription { return b.subscribe(buffer, false) }
+
+// SubscribeWithHistory e como Subscribe, mas a assinatura ja nasce com o historico
+// retido (atomicamente: sem lacunas nem duplicatas em relacao ao que vem depois).
+func (b *Bus) SubscribeWithHistory(buffer int) *Subscription { return b.subscribe(buffer, true) }
+
+func (b *Bus) subscribe(buffer int, replay bool) *Subscription {
 	if buffer < 1 {
 		buffer = 1
 	}
-	ch := make(chan *psychoscopev1.Alerta, buffer)
-	s := &Subscription{C: ch, ch: ch, bus: b}
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	var past []*psychoscopev1.Alerta
+	if replay {
+		past = b.history
+	}
+	ch := make(chan *psychoscopev1.Alerta, buffer+len(past))
+	for _, a := range past {
+		ch <- a
+	}
+	s := &Subscription{C: ch, ch: ch, bus: b}
 	b.subs[s] = struct{}{}
-	b.mu.Unlock()
 	return s
 }
 
@@ -45,6 +75,13 @@ func (b *Bus) Subscribe(buffer int) *Subscription {
 func (b *Bus) Publish(a *psychoscopev1.Alerta) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.histCap > 0 {
+		if len(b.history) == b.histCap {
+			copy(b.history, b.history[1:])
+			b.history = b.history[:b.histCap-1]
+		}
+		b.history = append(b.history, a)
+	}
 	for s := range b.subs {
 		select {
 		case s.ch <- a:

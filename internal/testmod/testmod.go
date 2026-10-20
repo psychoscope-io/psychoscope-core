@@ -8,6 +8,7 @@
 //	PSY_IGNORE_TERM=1       ignora SIGTERM
 //	PSY_IGNORE_ENCERRAR=1   confirma ENCERRAR mas nao sai
 //	PSY_NACK=<ACAO>         responde NACK a essa acao (ex.: RECONFIGURAR)
+//	PSY_SCAN=1              apos o Hello, envia 30 SYNs de 10.0.0.66 a portas distintas de 10.0.0.2
 package testmod
 
 import (
@@ -20,6 +21,7 @@ import (
 
 	"github.com/Bandeira27/psychoscope-core/internal/ipc"
 	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Enabled informa se este processo foi lancado como modulo falso.
@@ -57,6 +59,19 @@ func Main() {
 	m, err := ipc.ReadMessage(conn, 0)
 	if err != nil || !m.GetHelloResposta().GetAceito() {
 		os.Exit(11)
+	}
+	if os.Getenv("PSY_SCAN") != "" {
+		base := time.Unix(1_700_000_000, 0)
+		for port := uint32(1); port <= 30; port++ {
+			send(&psychoscopev1.MensagemIPC{Payload: &psychoscopev1.MensagemIPC_Telemetria{Telemetria: &psychoscopev1.EventoTelemetria{
+				IdModulo: id,
+				Dado: &psychoscopev1.EventoTelemetria_Rede{Rede: &psychoscopev1.EventoFluxoRede{
+					IpOrigem: "10.0.0.66", IpDestino: "10.0.0.2", PortaOrigem: 40000, PortaDestino: port,
+					Protocolo: psychoscopev1.ProtocoloTransporte_PROTO_TCP, FlagsTcp: 0x02, TamanhoBytes: 60,
+					TimestampCaptura: timestamppb.New(base.Add(time.Duration(port) * 100 * time.Millisecond)),
+				}},
+			}}})
+		}
 	}
 	go func() {
 		for {

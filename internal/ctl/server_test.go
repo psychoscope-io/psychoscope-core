@@ -247,3 +247,85 @@ func TestShutdownClosesClients(t *testing.T) {
 		t.Fatalf("cliente deveria ser desconectado: %v", err)
 	}
 }
+
+func TestClientListCommandAndStream(t *testing.T) {
+	be := &fakeBackend{}
+	path, bus, _ := start(t, be, me())
+	cl := &Client{Path: path, CallTimeout: 2 * time.Second}
+	ctx := context.Background()
+
+	ms, err := cl.List(ctx)
+	if err != nil || len(ms) != 2 || ms[0].IdModulo != "mod-a" {
+		t.Fatalf("List: %v %v", ms, err)
+	}
+	if err := cl.Command(ctx, "mod-a", psychoscopev1.ComandoControle_PAUSAR, map[string]string{"k": "v"}); err != nil {
+		t.Fatal(err)
+	}
+	be.mu.Lock()
+	calls := append([]string(nil), be.calls...)
+	be.mu.Unlock()
+	if len(calls) != 1 || calls[0] != "mod-a:PAUSAR:v" {
+		t.Fatalf("backend: %v", calls)
+	}
+	be.err = errors.New("modulo recusou")
+	if err := cl.Command(ctx, "mod-a", psychoscopev1.ComandoControle_PAUSAR, nil); err == nil || err.Error() != "modulo recusou" {
+		t.Fatalf("erro esperado propagado: %v", err)
+	}
+
+	// historico + ao vivo
+	bus.Publish(&psychoscopev1.Alerta{IdAlerta: "antigo"})
+	sctx, cancel := context.WithCancel(ctx)
+	st, err := cl.StreamAlerts(sctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus.Publish(&psychoscopev1.Alerta{IdAlerta: "novo"})
+	for _, want := range []string{"antigo", "novo"} {
+		select {
+		case a := <-st.C:
+			if a.IdAlerta != want {
+				t.Fatalf("esperado %s, obtido %s", want, a.IdAlerta)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timeout esperando %s", want)
+		}
+	}
+	cancel()
+	select {
+	case _, ok := <-st.C:
+		if ok {
+			t.Fatal("canal deveria fechar apos cancelar o contexto")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canal nao fechou")
+	}
+
+	// sem historico: so o que vier depois
+	st2, err := cl.StreamAlerts(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st2.Close()
+	select {
+	case a := <-st2.C:
+		t.Fatalf("nao deveria reenviar historico: %v", a)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestClientErrors(t *testing.T) {
+	cl := &Client{Path: filepath.Join(t.TempDir(), "nao-existe.sock"), DialTimeout: 200 * time.Millisecond}
+	if _, err := cl.List(context.Background()); err == nil {
+		t.Fatal("esperado erro de conexao")
+	}
+	if _, err := cl.StreamAlerts(context.Background(), false); err == nil {
+		t.Fatal("esperado erro de conexao no stream")
+	}
+	path, _, _ := start(t, &fakeBackend{}, me())
+	cl = &Client{Path: path}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := cl.List(ctx); err == nil {
+		t.Fatal("contexto cancelado deve falhar")
+	}
+}

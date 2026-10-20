@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Bandeira27/psychoscope-core/internal/detection/rules"
 	"golang.org/x/sys/unix"
 )
 
@@ -41,6 +42,14 @@ type ModuleSpec struct {
 	StopGrace      time.Duration // espera por saida apos ENCERRAR antes de SIGTERM/SIGKILL
 }
 
+// Detection configura a janela deslizante, a fila do motor e os limiares das regras.
+type Detection struct {
+	Window    time.Duration
+	MaxEvents int
+	QueueSize int
+	Rules     rules.Config
+}
+
 // Config e a configuracao efetiva do Core.
 type Config struct {
 	SocketPath     string
@@ -52,6 +61,7 @@ type Config struct {
 	CommandTimeout time.Duration
 	LogLevel       string
 	Modules        []ModuleSpec
+	Detection      Detection
 }
 
 type fileModule struct {
@@ -66,16 +76,50 @@ type fileModule struct {
 	StopGrace      string   `json:"stop_grace"`
 }
 
+type fileScan struct {
+	Window          string `json:"window"`
+	VerticalPorts   int    `json:"vertical_ports"`
+	HorizontalHosts int    `json:"horizontal_hosts"`
+	Cooldown        string `json:"cooldown"`
+}
+
+type fileNX struct {
+	Window       string `json:"window"`
+	MinResponses int    `json:"min_responses"`
+	MinDistinct  int    `json:"min_distinct"`
+	Cooldown     string `json:"cooldown"`
+}
+
+type fileTunnel struct {
+	Window       string   `json:"window"`
+	MinQueries   int      `json:"min_queries"`
+	MinLabelLen  int      `json:"min_label_len"`
+	MinEntropy   float64  `json:"min_entropy"`
+	AllowedBases []string `json:"allowed_bases"`
+	Cooldown     string   `json:"cooldown"`
+}
+
+type fileDetection struct {
+	Window    string     `json:"window"`
+	MaxEvents int        `json:"max_events"`
+	QueueSize int        `json:"queue_size"`
+	Disabled  []string   `json:"disabled"`
+	Scan      fileScan   `json:"scan"`
+	NXDomain  fileNX     `json:"nxdomain"`
+	Tunnel    fileTunnel `json:"tunnel"`
+}
+
 type fileConfig struct {
-	Socket         string       `json:"socket"`
-	CtlSocket      string       `json:"ctl_socket"`
-	SocketMode     string       `json:"socket_mode"`
-	AllowUnmanaged bool         `json:"allow_unmanaged"`
-	AllowedUIDs    []uint32     `json:"allowed_uids"`
-	StatusInterval string       `json:"status_interval"`
-	CommandTimeout string       `json:"command_timeout"`
-	LogLevel       string       `json:"log_level"`
-	Modules        []fileModule `json:"modules"`
+	Socket         string        `json:"socket"`
+	CtlSocket      string        `json:"ctl_socket"`
+	SocketMode     string        `json:"socket_mode"`
+	AllowUnmanaged bool          `json:"allow_unmanaged"`
+	AllowedUIDs    []uint32      `json:"allowed_uids"`
+	StatusInterval string        `json:"status_interval"`
+	CommandTimeout string        `json:"command_timeout"`
+	LogLevel       string        `json:"log_level"`
+	Modules        []fileModule  `json:"modules"`
+	Detection      fileDetection `json:"detection"`
 }
 
 // Env abstrai o ambiente para tornar Load testavel.
@@ -186,7 +230,55 @@ func Load(args []string, e Env) (*Config, error) {
 		c.Modules = append(c.Modules, m)
 	}
 
+	if c.Detection, err = loadDetection(fc.Detection); err != nil {
+		return nil, err
+	}
+
 	return c, c.Validate()
+}
+
+// DefaultDetection devolve a configuracao padrao do motor de deteccao.
+func DefaultDetection() Detection {
+	return Detection{Window: time.Minute, MaxEvents: 200_000, QueueSize: 4096, Rules: rules.Default()}
+}
+
+// loadDetection sobrepoe os campos informados aos defaults das regras.
+func loadDetection(f fileDetection) (Detection, error) {
+	d := DefaultDetection()
+	var err error
+	dur := func(name, in string, out *time.Duration) {
+		if err != nil || in == "" {
+			return
+		}
+		*out, err = parseDur("detection."+name, in, *out)
+	}
+	num := func(in int, out *int) {
+		if in != 0 {
+			*out = in
+		}
+	}
+	dur("window", f.Window, &d.Window)
+	num(f.MaxEvents, &d.MaxEvents)
+	num(f.QueueSize, &d.QueueSize)
+	r := &d.Rules
+	r.Disabled = f.Disabled
+	dur("scan.window", f.Scan.Window, &r.Scan.Window)
+	dur("scan.cooldown", f.Scan.Cooldown, &r.Scan.Cooldown)
+	num(f.Scan.VerticalPorts, &r.Scan.VerticalPorts)
+	num(f.Scan.HorizontalHosts, &r.Scan.HorizontalHosts)
+	dur("nxdomain.window", f.NXDomain.Window, &r.NXDomain.Window)
+	dur("nxdomain.cooldown", f.NXDomain.Cooldown, &r.NXDomain.Cooldown)
+	num(f.NXDomain.MinResponses, &r.NXDomain.MinResponses)
+	num(f.NXDomain.MinDistinct, &r.NXDomain.MinDistinct)
+	dur("tunnel.window", f.Tunnel.Window, &r.Tunnel.Window)
+	dur("tunnel.cooldown", f.Tunnel.Cooldown, &r.Tunnel.Cooldown)
+	num(f.Tunnel.MinQueries, &r.Tunnel.MinQueries)
+	num(f.Tunnel.MinLabelLen, &r.Tunnel.MinLabelLen)
+	if f.Tunnel.MinEntropy != 0 {
+		r.Tunnel.MinEntropy = f.Tunnel.MinEntropy
+	}
+	r.Tunnel.AllowedBases = f.Tunnel.AllowedBases
+	return d, err
 }
 
 // Validate verifica invariantes da configuracao.
@@ -207,6 +299,16 @@ func (c *Config) Validate() error {
 	}
 	if c.StatusInterval <= 0 || c.CommandTimeout <= 0 {
 		return errors.New("status_interval e command_timeout devem ser positivos")
+	}
+	if c.Detection.MaxEvents <= 0 || c.Detection.QueueSize <= 0 {
+		return errors.New("detection.max_events e detection.queue_size devem ser positivos")
+	}
+	if err := c.Detection.Rules.Validate(); err != nil {
+		return err
+	}
+	longest := max(c.Detection.Rules.Scan.Window, c.Detection.Rules.NXDomain.Window, c.Detection.Rules.Tunnel.Window)
+	if c.Detection.Window < longest {
+		return fmt.Errorf("detection.window (%v) deve cobrir a maior janela de regra (%v)", c.Detection.Window, longest)
 	}
 	seen := map[string]bool{}
 	for _, m := range c.Modules {

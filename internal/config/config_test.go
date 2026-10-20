@@ -109,3 +109,45 @@ func TestLoadRejects(t *testing.T) {
 		t.Errorf("argumento posicional deve falhar: %v", err)
 	}
 }
+
+func TestDetectionDefaultsOverlayAndValidation(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		p := filepath.Join(dir, "d.json")
+		os.WriteFile(p, []byte(body), 0o600)
+		return p
+	}
+	c, err := Load([]string{"-config", write(`{}`)}, env(0, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := c.Detection
+	if d.Window != time.Minute || d.Rules.Scan.VerticalPorts != 15 || d.Rules.Tunnel.MinEntropy != 3.2 || d.QueueSize != 4096 {
+		t.Fatalf("defaults: %+v", d)
+	}
+
+	c, err = Load([]string{"-config", write(`{"detection":{"window":"2m","disabled":["net.dns.tunnel"],
+		"scan":{"vertical_ports":30,"window":"20s"},"nxdomain":{"min_responses":50},
+		"tunnel":{"min_entropy":4.0,"allowed_bases":["cdn.example"]}}}`)}, env(0, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d = c.Detection
+	if d.Window != 2*time.Minute || d.Rules.Scan.VerticalPorts != 30 || d.Rules.Scan.Window != 20*time.Second ||
+		d.Rules.Scan.HorizontalHosts != 20 || d.Rules.NXDomain.MinResponses != 50 || d.Rules.NXDomain.MinDistinct != 8 ||
+		d.Rules.Tunnel.MinEntropy != 4.0 || len(d.Rules.Disabled) != 1 || d.Rules.Tunnel.AllowedBases[0] != "cdn.example" {
+		t.Fatalf("overlay: %+v", d)
+	}
+
+	for name, body := range map[string]string{
+		"janela menor que a regra": `{"detection":{"window":"5s"}}`,
+		"regra inexistente":        `{"detection":{"disabled":["net.x"]}}`,
+		"duracao invalida":         `{"detection":{"scan":{"window":"dez"}}}`,
+		"campo desconhecido":       `{"detection":{"bogus":1}}`,
+		"limiar negativo":          `{"detection":{"scan":{"vertical_ports":-1}}}`,
+	} {
+		if _, err := Load([]string{"-config", write(body)}, env(0, nil)); err == nil {
+			t.Errorf("%s: esperado erro", name)
+		}
+	}
+}
