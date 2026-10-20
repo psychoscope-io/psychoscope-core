@@ -40,6 +40,8 @@ Instalação como serviço (systemd, usuário dedicado, privilégios mínimos): 
 
 ## Uso rápido (desenvolvimento)
 
+Para só experimentar, sem montar configuração, rode `scripts/demo.sh` do [mod-net-sensor](https://github.com/psychoscope-io/mod-net-sensor#testar-em-minutos-demo): ele compila tudo, reproduz um pcap malicioso e abre a TUI.
+
 ```
 go build -o /tmp/psychoscope ./cmd/psychoscope && go build -o /tmp/psychoscope-cli ./cmd/psychoscope-cli
 /tmp/psychoscope --config psychoscope.json        # ou --socket/--ctl-socket
