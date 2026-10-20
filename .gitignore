@@ -1,2 +1,4 @@
 /psychoscope
 /psychoscope-cli
+go.work
+go.work.sum

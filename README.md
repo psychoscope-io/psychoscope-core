@@ -63,7 +63,7 @@ lançados pelo supervisor (só checa UID).
 
 ## Notas de desenvolvimento
 
-- `go.mod` usa `replace` para `../psychoscope-proto`; remover antes de publicar.
+- Depende de `github.com/Bandeira27/psychoscope-proto@v0.1.0`. Antes da publicação (ou offline): `source ../psychoscope-proto/scripts/local-deps.sh` resolve a dependência a partir do checkout local; para iterar no contrato sem criar tags, use um `go.work` (já ignorado pelo git).
 - `testdata/framing_vectors.json` é cópia de `psychoscope-proto/testdata/`.
 - `internal/testmod` é um módulo falso para testes (o binário de teste se re-executa como filho).
 - Testes entre repositórios (daemon + sensor reais, TUI em pty): `mod-net-sensor/scripts/e2e.sh` e `scripts/live_smoke.sh`.

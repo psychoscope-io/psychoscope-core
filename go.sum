@@ -1,3 +1,5 @@
+github.com/Bandeira27/psychoscope-proto v0.1.0 h1:1TjVDPYG47HsvfBFxvF6qi9e7zR5M1/9r+LqH50rT6U=
+github.com/Bandeira27/psychoscope-proto v0.1.0/go.mod h1:wSqUM3Wrobu6k79QYAKn4nqLYry0K5wWROnhw6iVtgA=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
 github.com/charmbracelet/bubbletea v1.3.10 h1:otUDHWMMzQSB0Pkc87rm691KZ3SWa4KUlvF9nRvCICw=
