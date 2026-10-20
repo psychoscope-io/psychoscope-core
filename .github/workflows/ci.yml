@@ -1,6 +1,42 @@
 name: ci
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
+  commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - name: mensagens de commit (Conventional Commits)
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            range="origin/$BASE_REF..HEAD"
+          elif [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            range="HEAD~1..HEAD"
+          else
+            range="$BEFORE..$SHA"
+          fi
+          ./scripts/check-commits.sh "$range"
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod }
+      - uses: golangci/golangci-lint-action@v9
+        with: { version: v2.15.0 }
+      - name: govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0 && govulncheck ./...
+      - name: shellcheck e actionlint
+        run: |
+          git ls-files -z '*.sh' '.githooks/*' | xargs -0 shellcheck
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 && "$(go env GOPATH)/bin/actionlint"
   go:
     runs-on: ubuntu-latest
     steps:
