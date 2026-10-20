@@ -1,0 +1,16 @@
+{
+  "socket_mode": "0660",
+  "allowed_uids": [],
+  "modules": [
+    {
+      "id": "mod-net-sensor",
+      "path": "/usr/local/bin/mod-net-sensor",
+      "args": ["-i", "eth0"],
+      "stop_grace": "10s"
+    }
+  ],
+  "storage": {
+    "retention_days": 30,
+    "max_alerts": 100000
+  }
+}

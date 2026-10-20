@@ -1,0 +1,53 @@
+[Unit]
+Description=Psychoscope MODR - core (hub, supervisor e motor de deteccao)
+Documentation=https://github.com/psychoscope-io/psychoscope-core
+After=network.target
+
+[Service]
+Type=simple
+User=psychoscope
+Group=psychoscope
+ExecStart=/usr/local/bin/psychoscope --config /etc/psychoscope/psychoscope.json
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30s
+
+# Diretorios gerenciados pelo systemd (dono: psychoscope). Com eles, o Core usa
+# /run/psychoscope (sockets) e /var/lib/psychoscope (alerts.db) sem configuracao extra.
+RuntimeDirectory=psychoscope
+RuntimeDirectoryMode=0750
+StateDirectory=psychoscope
+StateDirectoryMode=0750
+UMask=0077
+
+# Privilegios minimos. O Core roda como usuario sem capabilities. O sensor (processo
+# filho) ganha CAP_NET_RAW/CAP_NET_ADMIN SOMENTE pelas file capabilities do binario
+# (setcap cap_net_raw,cap_net_admin=eip), limitadas pelo bounding set abaixo.
+# NoNewPrivileges precisa ficar DESLIGADO: com ele, o kernel ignora as file capabilities
+# no execve e o sensor nao conseguiria abrir a captura. Veja docs/INSTALL.md.
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=
+NoNewPrivileges=no
+
+# Isolamento (vale para o Core e para os modulos filhos)
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_PACKET AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target
