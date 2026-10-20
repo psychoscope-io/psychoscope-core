@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"time"
 
@@ -93,29 +94,6 @@ type fileModule struct {
 	StopGrace      string   `json:"stop_grace"`
 }
 
-type fileScan struct {
-	Window          string `json:"window"`
-	VerticalPorts   int    `json:"vertical_ports"`
-	HorizontalHosts int    `json:"horizontal_hosts"`
-	Cooldown        string `json:"cooldown"`
-}
-
-type fileNX struct {
-	Window       string `json:"window"`
-	MinResponses int    `json:"min_responses"`
-	MinDistinct  int    `json:"min_distinct"`
-	Cooldown     string `json:"cooldown"`
-}
-
-type fileTunnel struct {
-	Window       string   `json:"window"`
-	MinQueries   int      `json:"min_queries"`
-	MinLabelLen  int      `json:"min_label_len"`
-	MinEntropy   float64  `json:"min_entropy"`
-	AllowedBases []string `json:"allowed_bases"`
-	Cooldown     string   `json:"cooldown"`
-}
-
 type fileStorage struct {
 	Enabled       *bool  `json:"enabled"`
 	Path          string `json:"path"`
@@ -128,15 +106,11 @@ type fileMetrics struct {
 	AllowNonLoopback bool   `json:"allow_non_loopback"`
 }
 
-type fileDetection struct {
-	Window    string     `json:"window"`
-	MaxEvents int        `json:"max_events"`
-	QueueSize int        `json:"queue_size"`
-	Disabled  []string   `json:"disabled"`
-	Scan      fileScan   `json:"scan"`
-	NXDomain  fileNX     `json:"nxdomain"`
-	Tunnel    fileTunnel `json:"tunnel"`
-}
+// fileDetection guarda a secao "detection" bruta: os campos proprios sao tratados em
+// loadDetection e cada secao de regra e sobreposta por overlayStruct (estrito).
+type fileDetection struct{ raw map[string]json.RawMessage }
+
+func (f *fileDetection) UnmarshalJSON(b []byte) error { return json.Unmarshal(b, &f.raw) }
 
 type fileConfig struct {
 	Socket         string        `json:"socket"`
@@ -305,43 +279,43 @@ func DefaultDetection() Detection {
 	return Detection{Window: time.Minute, MaxEvents: 200_000, QueueSize: 4096, Rules: rules.Default()}
 }
 
-// loadDetection sobrepoe os campos informados aos defaults das regras.
+// loadDetection sobrepoe a secao "detection" do arquivo aos defaults. Chaves desconhecidas
+// sao erro; cada secao de regra aceita apenas os campos da sua struct (tags json).
 func loadDetection(f fileDetection) (Detection, error) {
 	d := DefaultDetection()
-	var err error
-	dur := func(name, in string, out *time.Duration) {
-		if err != nil || in == "" {
-			return
+	sections := d.Rules.Sections()
+	keys := make([]string, 0, len(f.raw))
+	for k := range f.raw {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // erros deterministicos
+	for _, k := range keys {
+		raw := f.raw[k]
+		var err error
+		switch k {
+		case "window":
+			var s string
+			if err = json.Unmarshal(raw, &s); err == nil {
+				d.Window, err = parseDur("detection.window", s, d.Window)
+			}
+		case "max_events":
+			err = json.Unmarshal(raw, &d.MaxEvents)
+		case "queue_size":
+			err = json.Unmarshal(raw, &d.QueueSize)
+		case "disabled":
+			err = json.Unmarshal(raw, &d.Rules.Disabled)
+		default:
+			dst, ok := sections[k]
+			if !ok {
+				return d, fmt.Errorf("detection: campo desconhecido %q", k)
+			}
+			err = overlayStruct(raw, dst, "detection."+k)
 		}
-		*out, err = parseDur("detection."+name, in, *out)
-	}
-	num := func(in int, out *int) {
-		if in != 0 {
-			*out = in
+		if err != nil {
+			return d, fmt.Errorf("detection.%s: %w", k, err)
 		}
 	}
-	dur("window", f.Window, &d.Window)
-	num(f.MaxEvents, &d.MaxEvents)
-	num(f.QueueSize, &d.QueueSize)
-	r := &d.Rules
-	r.Disabled = f.Disabled
-	dur("scan.window", f.Scan.Window, &r.Scan.Window)
-	dur("scan.cooldown", f.Scan.Cooldown, &r.Scan.Cooldown)
-	num(f.Scan.VerticalPorts, &r.Scan.VerticalPorts)
-	num(f.Scan.HorizontalHosts, &r.Scan.HorizontalHosts)
-	dur("nxdomain.window", f.NXDomain.Window, &r.NXDomain.Window)
-	dur("nxdomain.cooldown", f.NXDomain.Cooldown, &r.NXDomain.Cooldown)
-	num(f.NXDomain.MinResponses, &r.NXDomain.MinResponses)
-	num(f.NXDomain.MinDistinct, &r.NXDomain.MinDistinct)
-	dur("tunnel.window", f.Tunnel.Window, &r.Tunnel.Window)
-	dur("tunnel.cooldown", f.Tunnel.Cooldown, &r.Tunnel.Cooldown)
-	num(f.Tunnel.MinQueries, &r.Tunnel.MinQueries)
-	num(f.Tunnel.MinLabelLen, &r.Tunnel.MinLabelLen)
-	if f.Tunnel.MinEntropy != 0 {
-		r.Tunnel.MinEntropy = f.Tunnel.MinEntropy
-	}
-	r.Tunnel.AllowedBases = f.Tunnel.AllowedBases
-	return d, err
+	return d, nil
 }
 
 // Validate verifica invariantes da configuracao.
@@ -384,7 +358,7 @@ func (c *Config) Validate() error {
 	if err := c.Detection.Rules.Validate(); err != nil {
 		return err
 	}
-	longest := max(c.Detection.Rules.Scan.Window, c.Detection.Rules.NXDomain.Window, c.Detection.Rules.Tunnel.Window)
+	longest := c.Detection.Rules.LongestWindow()
 	if c.Detection.Window < longest {
 		return fmt.Errorf("detection.window (%v) deve cobrir a maior janela de regra (%v)", c.Detection.Window, longest)
 	}

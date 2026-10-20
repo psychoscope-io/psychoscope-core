@@ -255,7 +255,7 @@ func TestDisabledRulesAndConfigValidation(t *testing.T) {
 	cfg := Default()
 	cfg.Disabled = []string{NameScanSYN}
 	rs, err := Build(cfg)
-	if err != nil || len(rs) != 2 {
+	if err != nil || len(rs) != len(AllNames())-1 {
 		t.Fatalf("regras: %d %v", len(rs), err)
 	}
 	var evs []*psychoscopev1.EventoFluxoRede

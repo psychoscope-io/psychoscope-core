@@ -218,3 +218,46 @@ func TestDefaultStateDir(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectionNewRuleSections(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		p := filepath.Join(dir, "d.json")
+		os.WriteFile(p, []byte(body), 0o600)
+		return p
+	}
+	c, err := Load([]string{"-config", write(`{"detection":{
+		"tls":{"cooldown":"20m","allowed_bases":["cdn.example"],"min_entropy":3.9},
+		"beacon":{"min_samples":12,"max_cv":0.1,"ignore_domains":["windowsupdate.com"],"ignore_ports":[123,5353]},
+		"bruteforce":{"ports":[22,2222],"ignore_sources":["10.9.0.0/16"],"min_attempts":20},
+		"icmp_sweep":{"min_hosts":50,"window":"30s"},
+		"dns_rate":{"min_queries":500},
+		"disabled":["net.beacon"]}}`)}, env(0, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := c.Detection.Rules
+	if r.TLS.Cooldown != 20*time.Minute || r.TLS.AllowedBases[0] != "cdn.example" || r.TLS.MinEntropy != 3.9 || r.TLS.MissingSNIMin != 3 ||
+		r.Beacon.MinSamples != 12 || r.Beacon.MaxCV != 0.1 || r.Beacon.IgnorePorts[1] != 5353 || r.Beacon.MaxInterval != time.Hour ||
+		len(r.BruteForce.Ports) != 2 || r.BruteForce.MinAttempts != 20 || r.BruteForce.IgnoreSources[0] != "10.9.0.0/16" ||
+		r.ICMPSweep.MinHosts != 50 || r.ICMPSweep.Window != 30*time.Second || r.DNSRate.MinQueries != 500 || r.DNSRate.Window != 10*time.Second ||
+		r.Disabled[0] != "net.beacon" {
+		t.Fatalf("overlay das novas secoes: %+v", r)
+	}
+	for name, body := range map[string]string{
+		"campo desconhecido na secao":          `{"detection":{"beacon":{"max_cvv":0.1}}}`,
+		"secao desconhecida":                   `{"detection":{"beaconing":{}}}`,
+		"tipo errado":                          `{"detection":{"bruteforce":{"ports":"22"}}}`,
+		"fonte invalida":                       `{"detection":{"bruteforce":{"ignore_sources":["xyz"]}}}`,
+		"janela de regra maior que a do motor": `{"detection":{"window":"30s","icmp_sweep":{"window":"45s"}}}`,
+		"min_samples invalido":                 `{"detection":{"beacon":{"min_samples":2}}}`,
+	} {
+		if _, err := Load([]string{"-config", write(body)}, env(0, nil)); err == nil {
+			t.Errorf("%s: esperado erro", name)
+		}
+	}
+	_, err = Load([]string{"-config", write(`{"detection":{"beacon":{"max_cvv":0.1}}}`)}, env(0, nil))
+	if err == nil || !strings.Contains(err.Error(), "detection.beacon") || !strings.Contains(err.Error(), "max_cv") {
+		t.Errorf("a mensagem deve apontar a secao e listar os campos validos: %v", err)
+	}
+}

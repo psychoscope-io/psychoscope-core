@@ -186,3 +186,55 @@ func entropy(s string) float64 {
 	}
 	return h
 }
+
+// ---- net.dns.rate ----
+
+// DNSRate detecta pico anomalo de consultas DNS de um cliente (exfiltracao ruidosa,
+// malware com resolucao agressiva ou DoS contra o resolvedor) (MEDIA).
+type DNSRate struct{ cfg DNSRateConfig }
+
+func NewDNSRate(cfg DNSRateConfig) *DNSRate { return &DNSRate{cfg} }
+
+func (r *DNSRate) Name() string            { return NameDNSRate }
+func (r *DNSRate) Cooldown() time.Duration { return r.cfg.Cooldown }
+
+func isDNSQuery(ev *detection.Event) bool {
+	d := ev.DNS()
+	return d != nil && !d.EhResposta
+}
+
+func (r *DNSRate) Key(ev *detection.Event) (string, bool) {
+	if !isDNSQuery(ev) || ev.Net.IpOrigem == "" {
+		return "", false
+	}
+	return ev.Net.IpOrigem, true
+}
+
+func (r *DNSRate) Eval(ev *detection.Event, w *detection.Window) *psychoscopev1.Alerta {
+	client := ev.Net.IpOrigem
+	evs := w.FromSrc(client)
+	if len(evs) < r.cfg.MinQueries { // nem todos os eventos do cliente bastariam
+		return nil
+	}
+	cutoff := ev.At.Add(-r.cfg.Window)
+	count := 0
+	domains := map[string]struct{}{}
+	for i := len(evs) - 1; i >= 0; i-- {
+		e := evs[i]
+		if e.At.Before(cutoff) {
+			break
+		}
+		if isDNSQuery(e) {
+			count++
+			domains[e.DNS().DominioConsultado] = struct{}{}
+		}
+	}
+	if count < r.cfg.MinQueries {
+		return nil
+	}
+	return detection.NewAlert(NameDNSRate, psychoscopev1.Severidade_SEVERIDADE_MEDIA,
+		fmt.Sprintf("Pico de consultas DNS: %s fez %d consultas (%d dominios distintos) em %s", client, count, len(domains), r.cfg.Window),
+		ev, map[string]string{
+			"cliente": client, "consultas": fmt.Sprint(count), "dominios_distintos": fmt.Sprint(len(domains)), "janela": r.cfg.Window.String(),
+		})
+}
