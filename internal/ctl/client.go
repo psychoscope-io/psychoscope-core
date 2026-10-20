@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
 // Client fala com o ctl.sock do Core. Chamadas de requisicao/resposta abrem uma

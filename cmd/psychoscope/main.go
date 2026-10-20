@@ -9,8 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Bandeira27/psychoscope-core/internal/app"
-	"github.com/Bandeira27/psychoscope-core/internal/config"
+	"github.com/psychoscope-io/psychoscope-core/internal/app"
+	"github.com/psychoscope-io/psychoscope-core/internal/config"
 )
 
 func main() {

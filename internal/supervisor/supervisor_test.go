@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bandeira27/psychoscope-core/internal/config"
-	"github.com/Bandeira27/psychoscope-core/internal/ipc"
-	"github.com/Bandeira27/psychoscope-core/internal/testmod"
-	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	"github.com/psychoscope-io/psychoscope-core/internal/config"
+	"github.com/psychoscope-io/psychoscope-core/internal/ipc"
+	"github.com/psychoscope-io/psychoscope-core/internal/testmod"
+	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
 func TestMain(m *testing.M) {

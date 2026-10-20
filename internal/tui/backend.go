@@ -5,8 +5,8 @@ package tui
 import (
 	"context"
 
-	"github.com/Bandeira27/psychoscope-core/internal/ctl"
-	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
+	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
 // Stream e uma assinatura de alertas.

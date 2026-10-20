@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/Bandeira27/psychoscope-core/internal/detection"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection"
 )
 
 // Nomes das regras (usados em alertas, em Config.Disabled e no cooldown).

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Bandeira27/psychoscope-core/internal/detection"
-	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection"
+	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
 // ScanSYN detecta varreduras de portas por SYN puro (SYN sem ACK):

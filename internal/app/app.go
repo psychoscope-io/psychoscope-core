@@ -10,14 +10,14 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/Bandeira27/psychoscope-core/internal/alerts"
-	"github.com/Bandeira27/psychoscope-core/internal/config"
-	"github.com/Bandeira27/psychoscope-core/internal/ctl"
-	"github.com/Bandeira27/psychoscope-core/internal/detection"
-	"github.com/Bandeira27/psychoscope-core/internal/detection/rules"
-	"github.com/Bandeira27/psychoscope-core/internal/ipc"
-	"github.com/Bandeira27/psychoscope-core/internal/supervisor"
-	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	"github.com/psychoscope-io/psychoscope-core/internal/alerts"
+	"github.com/psychoscope-io/psychoscope-core/internal/config"
+	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
+	"github.com/psychoscope-io/psychoscope-core/internal/ipc"
+	"github.com/psychoscope-io/psychoscope-core/internal/supervisor"
+	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
 // Version e a versao do Core (sobrescrita via -ldflags "-X .../app.Version=").

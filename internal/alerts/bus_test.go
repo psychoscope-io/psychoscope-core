@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
 func TestFanOutAndClose(t *testing.T) {

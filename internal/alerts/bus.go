@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
 // Bus distribui alertas a todos os assinantes sem nunca bloquear o publicador:

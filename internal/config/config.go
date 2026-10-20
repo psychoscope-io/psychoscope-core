@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Bandeira27/psychoscope-core/internal/detection/rules"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	"golang.org/x/sys/unix"
 )
 

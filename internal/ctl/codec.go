@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/Bandeira27/psychoscope-core/internal/ipc"
-	psychoscopev1 "github.com/Bandeira27/psychoscope-proto/gen/go/psychoscope/v1"
+	"github.com/psychoscope-io/psychoscope-core/internal/ipc"
+	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 	"google.golang.org/protobuf/proto"
 )
 
