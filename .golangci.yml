@@ -1,0 +1,37 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - gosec
+    - unconvert
+    - bodyclose
+    - nilerr
+  settings:
+    errcheck:
+      # Close e escritas de texto em stdout/stderr nao tem tratamento util.
+      exclude-functions:
+        - (io.Closer).Close
+        - (net.Conn).Close
+        - (net.Listener).Close
+        - (*os.File).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - (*net/http.Response).Body.Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    rules:
+      # Testes: sorteio fraco, conversoes pequenas e caminhos de t.TempDir sao esperados.
+      - path: _test\.go
+        linters: [gosec, errcheck, bodyclose]
+      # Modulo falso usado so nos testes de integracao.
+      - path: internal/testmod/
+        linters: [gosec]
+formatters:
+  enable:
+    - gofmt

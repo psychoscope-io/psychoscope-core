@@ -17,11 +17,13 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 ## Comandos
 
 ```bash
-gofmt -l .                  # deve sair vazio
-go vet ./...
-go test -race ./...
+make hooks                  # uma vez por clone: ativa commit-msg, pre-commit e pre-push
+make check                  # o que o CI roda: gofmt, vet, golangci-lint, shellcheck, actionlint, govulncheck, go test -race
+make fmt                    # gofmt -w
 ./deploy/test_install.sh    # instalador, sem privilégios
 ```
+
+Ferramentas (fora do `go.mod`): `golangci-lint` v2, `govulncheck`, `actionlint` (`go install`) e `shellcheck`. Achado de lint se corrige; só vira `//nolint:<linter> // motivo` quando o aviso é legítimo e o motivo cabe numa linha.
 
 Dependência do proto antes de a tag existir no GitHub: `source ../psychoscope-proto/scripts/local-deps.sh` (ou um `go.work`, ignorado pelo git). Integração com o sensor real, persistência e TUI em pty: `../mod-net-sensor/scripts/e2e.sh` e `live_smoke.sh`.
 
