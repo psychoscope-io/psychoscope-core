@@ -29,13 +29,16 @@ func (r *ScanSYN) Key(ev *detection.Event) (string, bool) {
 	return ev.Net.IpOrigem, true
 }
 
-func (r *ScanSYN) Eval(ev *detection.Event, w *detection.Window) *psychoscopev1.Alerta {
-	src := ev.Net.IpOrigem
-	cutoff := ev.At.Add(-r.cfg.Window)
-	evs := w.FromSrc(src)
+// probes resume as sondas SYN de uma origem na janela: portas por destino e destinos por porta.
+type probes struct {
+	portsByDst  map[string]map[uint32]struct{}
+	hostsByPort map[uint32]map[string]struct{}
+}
 
-	portsByDst := map[string]map[uint32]struct{}{}
-	hostsByPort := map[uint32]map[string]struct{}{}
+func (r *ScanSYN) collect(ev *detection.Event, w *detection.Window) probes {
+	p := probes{portsByDst: map[string]map[uint32]struct{}{}, hostsByPort: map[uint32]map[string]struct{}{}}
+	cutoff := ev.At.Add(-r.cfg.Window)
+	evs := w.FromSrc(ev.Net.IpOrigem)
 	for i, scanned := len(evs)-1, 0; i >= 0 && scanned < r.cfg.MaxScan; i, scanned = i-1, scanned+1 {
 		e := evs[i]
 		if e.At.Before(cutoff) {
@@ -45,53 +48,72 @@ func (r *ScanSYN) Eval(ev *detection.Event, w *detection.Window) *psychoscopev1.
 			continue
 		}
 		dst, port := e.Net.IpDestino, e.Net.PortaDestino
-		if portsByDst[dst] == nil {
-			portsByDst[dst] = map[uint32]struct{}{}
+		if p.portsByDst[dst] == nil {
+			p.portsByDst[dst] = map[uint32]struct{}{}
 		}
-		portsByDst[dst][port] = struct{}{}
-		if hostsByPort[port] == nil {
-			hostsByPort[port] = map[string]struct{}{}
+		p.portsByDst[dst][port] = struct{}{}
+		if p.hostsByPort[port] == nil {
+			p.hostsByPort[port] = map[string]struct{}{}
 		}
-		hostsByPort[port][dst] = struct{}{}
+		p.hostsByPort[port][dst] = struct{}{}
 	}
+	return p
+}
 
-	var bestDst string
-	bestPorts := 0
-	for dst, ps := range portsByDst {
-		if len(ps) > bestPorts || (len(ps) == bestPorts && dst < bestDst) {
-			bestDst, bestPorts = dst, len(ps)
+// busiestDst devolve o destino com mais portas distintas (empate: menor endereco).
+func (p probes) busiestDst() (dst string, ports int) {
+	for d, ps := range p.portsByDst {
+		if len(ps) > ports || (len(ps) == ports && d < dst) {
+			dst, ports = d, len(ps)
 		}
 	}
-	if bestPorts >= r.cfg.VerticalPorts {
-		ports := make([]int, 0, bestPorts)
-		for p := range portsByDst[bestDst] {
-			ports = append(ports, int(p))
-		}
-		sort.Ints(ports)
-		return detection.NewAlert(NameScanSYN, psychoscopev1.Severidade_SEVERIDADE_MEDIA,
-			fmt.Sprintf("Varredura vertical de portas: %s sondou %d portas de %s em %s", src, bestPorts, bestDst, r.cfg.Window),
-			ev, map[string]string{
-				"tipo": "vertical", "origem": src, "destino": bestDst,
-				"portas_distintas": fmt.Sprint(bestPorts), "janela": r.cfg.Window.String(), "portas_exemplo": sample(ports, 10),
-			})
-	}
+	return dst, ports
+}
 
-	var bestPort uint32
-	bestHosts := 0
-	for port, hs := range hostsByPort {
-		if len(hs) > bestHosts || (len(hs) == bestHosts && port < bestPort) {
-			bestPort, bestHosts = port, len(hs)
+// busiestPort devolve a porta sondada em mais destinos distintos (empate: menor porta).
+func (p probes) busiestPort() (port uint32, hosts int) {
+	for pt, hs := range p.hostsByPort {
+		if len(hs) > hosts || (len(hs) == hosts && pt < port) {
+			port, hosts = pt, len(hs)
 		}
 	}
-	if bestHosts >= r.cfg.HorizontalHosts {
-		return detection.NewAlert(NameScanSYN, psychoscopev1.Severidade_SEVERIDADE_ALTA,
-			fmt.Sprintf("Varredura horizontal: %s sondou a porta %d em %d hosts em %s", src, bestPort, bestHosts, r.cfg.Window),
-			ev, map[string]string{
-				"tipo": "horizontal", "origem": src, "porta": fmt.Sprint(bestPort),
-				"hosts_distintos": fmt.Sprint(bestHosts), "janela": r.cfg.Window.String(),
-			})
+	return port, hosts
+}
+
+func (r *ScanSYN) Eval(ev *detection.Event, w *detection.Window) *psychoscopev1.Alerta {
+	p := r.collect(ev, w)
+	if dst, n := p.busiestDst(); n >= r.cfg.VerticalPorts {
+		return r.verticalAlert(ev, dst, p.portsByDst[dst])
+	}
+	if port, n := p.busiestPort(); n >= r.cfg.HorizontalHosts {
+		return r.horizontalAlert(ev, port, n)
 	}
 	return nil
+}
+
+func (r *ScanSYN) verticalAlert(ev *detection.Event, dst string, portSet map[uint32]struct{}) *psychoscopev1.Alerta {
+	src := ev.Net.IpOrigem
+	ports := make([]int, 0, len(portSet))
+	for p := range portSet {
+		ports = append(ports, int(p))
+	}
+	sort.Ints(ports)
+	return detection.NewAlert(NameScanSYN, psychoscopev1.Severidade_SEVERIDADE_MEDIA,
+		fmt.Sprintf("Varredura vertical de portas: %s sondou %d portas de %s em %s", src, len(ports), dst, r.cfg.Window),
+		ev, map[string]string{
+			"tipo": "vertical", "origem": src, "destino": dst,
+			"portas_distintas": fmt.Sprint(len(ports)), "janela": r.cfg.Window.String(), "portas_exemplo": sample(ports, 10),
+		})
+}
+
+func (r *ScanSYN) horizontalAlert(ev *detection.Event, port uint32, hosts int) *psychoscopev1.Alerta {
+	src := ev.Net.IpOrigem
+	return detection.NewAlert(NameScanSYN, psychoscopev1.Severidade_SEVERIDADE_ALTA,
+		fmt.Sprintf("Varredura horizontal: %s sondou a porta %d em %d hosts em %s", src, port, hosts, r.cfg.Window),
+		ev, map[string]string{
+			"tipo": "horizontal", "origem": src, "porta": fmt.Sprint(port),
+			"hosts_distintos": fmt.Sprint(hosts), "janela": r.cfg.Window.String(),
+		})
 }
 
 func sample(ports []int, n int) string {

@@ -81,6 +81,26 @@ func (r *Beacon) Eval(ev *detection.Event, _ *detection.Window) *psychoscopev1.A
 	if !ok {
 		return nil
 	}
+	s := r.seriesFor(key)
+	if !s.admit(ev.At, r.cfg.MinInterval) {
+		return nil
+	}
+	s.add(ev.At, r.cfg.MaxInterval)
+	if len(s.times) < r.cfg.MinSamples {
+		return nil
+	}
+	mean, cv := intervalStats(s.times)
+	if mean < r.cfg.MinInterval || mean > r.cfg.MaxInterval || cv > r.cfg.MaxCV {
+		return nil
+	}
+	if !r.armCooldown(key, ev.At) {
+		return nil
+	}
+	return r.alert(ev, key, kind, target, len(s.times), mean, cv)
+}
+
+// seriesFor devolve a serie da chave, criando-a (e abrindo espaco, se estiver no teto).
+func (r *Beacon) seriesFor(key string) *series {
 	s := r.series[key]
 	if s == nil {
 		if len(r.series) >= r.cfg.MaxKeys {
@@ -89,55 +109,62 @@ func (r *Beacon) Eval(ev *detection.Event, _ *detection.Window) *psychoscopev1.A
 		s = &series{}
 		r.series[key] = s
 	}
-	prevSeen := s.seen
-	if ev.At.Before(prevSeen) { // evento fora de ordem
-		return nil
-	}
-	s.seen = ev.At
-	if !prevSeen.IsZero() && ev.At.Sub(prevSeen) < r.cfg.MinInterval {
-		return nil // rajada ou retransmissao: faz parte do mesmo contato
-	}
+	return s
+}
 
+// admit atualiza o ultimo evento visto e informa se o evento conta como um novo
+// contato: eventos fora de ordem e rajadas/retransmissoes (mais proximos que
+// minInterval do evento anterior) fazem parte do mesmo contato.
+func (s *series) admit(at time.Time, minInterval time.Duration) bool {
+	prev := s.seen
+	if at.Before(prev) {
+		return false
+	}
+	s.seen = at
+	return prev.IsZero() || at.Sub(prev) >= minInterval
+}
+
+// add registra o contato. Um silencio maior que 3x o intervalo medio da serie (ou
+// maxInterval, enquanto ha poucos pontos) a reinicia; a serie guarda so os ultimos pontos.
+func (s *series) add(at time.Time, maxInterval time.Duration) {
 	if n := len(s.times); n > 0 {
-		gap := ev.At.Sub(s.times[n-1])
-		reset := r.cfg.MaxInterval
+		reset := maxInterval
 		if n >= 3 {
 			reset = time.Duration(3 * float64(s.times[n-1].Sub(s.times[0])) / float64(n-1))
 		}
-		if gap > reset {
+		if at.Sub(s.times[n-1]) > reset {
 			s.times = s.times[:0]
 		}
 	}
-	s.times = append(s.times, ev.At)
+	s.times = append(s.times, at)
 	if len(s.times) > maxSeriesLen {
 		s.times = append(s.times[:0], s.times[len(s.times)-maxSeriesLen:]...)
 	}
-	if len(s.times) < r.cfg.MinSamples {
-		return nil
-	}
+}
 
-	mean, cv := intervalStats(s.times)
-	if mean < r.cfg.MinInterval || mean > r.cfg.MaxInterval || cv > r.cfg.MaxCV {
-		return nil
-	}
-	if until, ok := r.cooldown[key]; ok && ev.At.Before(until) {
-		return nil
+// armCooldown devolve false se a chave ainda esta suprimida; senao arma o cooldown.
+func (r *Beacon) armCooldown(key string, at time.Time) bool {
+	if until, ok := r.cooldown[key]; ok && at.Before(until) {
+		return false
 	}
 	if len(r.cooldown) >= r.cfg.MaxKeys {
 		for k, until := range r.cooldown {
-			if !ev.At.Before(until) {
+			if !at.Before(until) {
 				delete(r.cooldown, k)
 			}
 		}
 	}
-	r.cooldown[key] = ev.At.Add(r.cfg.Cooldown)
+	r.cooldown[key] = at.Add(r.cfg.Cooldown)
+	return true
+}
 
+func (r *Beacon) alert(ev *detection.Event, key, kind, target string, samples int, mean time.Duration, cv float64) *psychoscopev1.Alerta {
 	src := ev.Net.IpOrigem
 	desc := fmt.Sprintf("Possivel beaconing: %s contata %s a cada ~%s (%d contatos, variacao %.0f%%)",
-		src, target, mean.Round(time.Second), len(s.times), cv*100)
+		src, target, mean.Round(time.Second), samples, cv*100)
 	return detection.NewAlert(NameBeacon, psychoscopev1.Severidade_SEVERIDADE_MEDIA, desc, ev, map[string]string{
 		"tipo": kind, "origem": src, "alvo": target, "chave": key,
-		"intervalo_medio": mean.Round(time.Millisecond).String(), "amostras": strconv.Itoa(len(s.times)),
+		"intervalo_medio": mean.Round(time.Millisecond).String(), "amostras": strconv.Itoa(samples),
 		"variacao_pct": strconv.FormatFloat(cv*100, 'f', 1, 64),
 	})
 }
