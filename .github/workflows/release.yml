@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version-file: go.mod }
+        with: { go-version: stable }
       - run: go vet ./...
       - run: go test ./...
       - run: ./deploy/test_install.sh
@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
-        with: { go-version-file: go.mod }
+        with: { go-version: stable }
       - name: compilar e empacotar
         env:
           GOOS: linux
