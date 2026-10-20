@@ -1,68 +1,15 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
-const (
-	refreshEvery   = time.Second
-	reconnectAfter = 2 * time.Second
-	maxAlerts      = 500
-	callTimeout    = 3 * time.Second
-	commandTimeout = 35 * time.Second // ENCERRAR pode levar o StopGrace do modulo
-	statusTTL      = 5 * time.Second
-)
-
-type focus int
-
-const (
-	focusModules focus = iota
-	focusAlerts
-)
-
-// ---- mensagens ----
-
-type (
-	tickMsg    time.Time
-	modulesMsg struct {
-		mods []*psychoscopev1.ModuloInfo
-		err  error
-	}
-	streamOpenedMsg struct {
-		s   Stream
-		err error
-	}
-	metricsMsg struct {
-		ms  []*psychoscopev1.Metrica
-		err error
-		at  time.Time
-	}
-	alertMsg        struct{ a *psychoscopev1.Alerta }
-	streamClosedMsg struct{ err error }
-	reopenMsg       struct{}
-	commandDoneMsg  struct {
-		label string
-		err   error
-	}
-	clearStatusMsg struct{ seq int }
-)
-
-type pending struct {
-	module string
-	acao   psychoscopev1.ComandoControle_TipoAcao
-}
-
-// Model e o estado da TUI (tea.Model).
 type Model struct {
 	be Backend
 
@@ -96,149 +43,105 @@ type Model struct {
 // NewModel cria a TUI sobre b.
 func NewModel(b Backend) *Model { return &Model{be: b, width: 100, height: 30} }
 
-// ---- comandos assincronos ----
-
-func (m *Model) fetchModules() tea.Cmd {
-	be := m.be
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
-		defer cancel()
-		mods, err := be.List(ctx)
-		return modulesMsg{mods, err}
-	}
-}
-
-func (m *Model) fetchMetrics() tea.Cmd {
-	be := m.be
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
-		defer cancel()
-		ms, err := be.Metrics(ctx)
-		return metricsMsg{ms, err, time.Now()}
-	}
-}
-
-func (m *Model) tick() tea.Cmd {
-	return tea.Tick(refreshEvery, func(t time.Time) tea.Msg { return tickMsg(t) })
-}
-
-func (m *Model) openStream() tea.Cmd {
-	be := m.be
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
-		defer cancel()
-		// O contexto so cobre a conexao inicial; o stream vive ate Close.
-		s, err := be.StreamAlerts(context.WithoutCancel(ctx))
-		return streamOpenedMsg{s, err}
-	}
-}
-
-func waitAlert(s Stream) tea.Cmd {
-	return func() tea.Msg {
-		a, ok := <-s.Alerts()
-		if !ok {
-			return streamClosedMsg{s.Err()}
-		}
-		return alertMsg{a}
-	}
-}
-
-func (m *Model) send(module string, acao psychoscopev1.ComandoControle_TipoAcao, label string) tea.Cmd {
-	be := m.be
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
-		defer cancel()
-		return commandDoneMsg{label, be.Command(ctx, module, acao)}
-	}
-}
-
-func (m *Model) setStatus(text string, isErr bool) tea.Cmd {
-	m.status, m.statusErr = text, isErr
-	m.statusSeq++
-	seq := m.statusSeq
-	return tea.Tick(statusTTL, func(time.Time) tea.Msg { return clearStatusMsg{seq} })
-}
-
-// ---- tea.Model ----
-
+// Init dispara a primeira leitura de modulos, metricas e o stream de alertas.
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.fetchModules(), m.fetchMetrics(), m.openStream(), m.tick())
 }
 
+// Update trata uma mensagem. Cada caso delega a um metodo pequeno.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-
 	case tickMsg:
 		return m, tea.Batch(m.fetchModules(), m.fetchMetrics(), m.tick())
-
 	case modulesMsg:
-		m.modsErr = msg.err
-		if msg.err == nil {
-			m.mods = msg.mods
-			sort.SliceStable(m.mods, func(i, j int) bool { return m.mods[i].IdModulo < m.mods[j].IdModulo })
-			m.selected = clamp(m.selected, 0, len(m.mods)-1)
-		}
-
+		m.onModules(msg)
 	case metricsMsg:
-		if msg.err != nil {
-			m.haveMetrics = false
-			break
-		}
-		m.applyMetrics(msg.ms, msg.at)
-
+		m.onMetrics(msg)
 	case streamOpenedMsg:
-		if msg.err != nil {
-			m.streamOK = false
-			return m, tea.Tick(reconnectAfter, func(time.Time) tea.Msg { return reopenMsg{} })
-		}
-		m.stream, m.streamOK = msg.s, true
-		return m, waitAlert(msg.s)
-
+		return m, m.onStreamOpened(msg)
 	case reopenMsg:
 		return m, m.openStream()
-
 	case alertMsg:
-		m.alerts = append([]*psychoscopev1.Alerta{msg.a}, m.alerts...)
-		if len(m.alerts) > maxAlerts {
-			m.alerts = m.alerts[:maxAlerts]
-		}
-		if m.alertSel > 0 { // mantem a selecao no mesmo alerta enquanto chegam novos
-			m.alertSel = clamp(m.alertSel+1, 0, len(m.alerts)-1)
-		}
-		return m, waitAlert(m.stream)
-
+		return m, m.onAlert(msg)
 	case streamClosedMsg:
-		m.streamOK = false
-		if m.stream != nil {
-			m.stream.Close()
-			m.stream = nil
-		}
-		return m, tea.Tick(reconnectAfter, func(time.Time) tea.Msg { return reopenMsg{} })
-
+		return m, m.onStreamClosed()
 	case commandDoneMsg:
-		cmds := []tea.Cmd{m.fetchModules()}
-		if msg.err != nil {
-			cmds = append(cmds, m.setStatus(fmt.Sprintf("%s: %v", msg.label, msg.err), true))
-		} else {
-			cmds = append(cmds, m.setStatus(msg.label+": ok", false))
-		}
-		return m, tea.Batch(cmds...)
-
+		return m, m.onCommandDone(msg)
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {
 			m.status = ""
 		}
-
 	case tea.KeyMsg:
 		return m.onKey(msg)
 	}
 	return m, nil
 }
 
-// applyMetrics extrai do instantaneo os numeros do cabecalho; a taxa de eventos/s vem
-// do delta do contador entre duas consultas (contador que diminuiu = Core reiniciou).
+func (m *Model) onModules(msg modulesMsg) {
+	m.modsErr = msg.err
+	if msg.err != nil {
+		return
+	}
+	m.mods = msg.mods
+	sort.SliceStable(m.mods, func(i, j int) bool { return m.mods[i].IdModulo < m.mods[j].IdModulo })
+	m.selected = clamp(m.selected, 0, len(m.mods)-1)
+}
+
+func (m *Model) onMetrics(msg metricsMsg) {
+	if msg.err != nil {
+		m.haveMetrics = false
+		return
+	}
+	m.applyMetrics(msg.ms, msg.at)
+}
+
+func reopenAfter() tea.Cmd {
+	return tea.Tick(reconnectAfter, func(time.Time) tea.Msg { return reopenMsg{} })
+}
+
+func (m *Model) onStreamOpened(msg streamOpenedMsg) tea.Cmd {
+	if msg.err != nil {
+		m.streamOK = false
+		return reopenAfter()
+	}
+	m.stream, m.streamOK = msg.s, true
+	return waitAlert(msg.s)
+}
+
+// onAlert insere o alerta no topo (mais novo primeiro), respeita o limite e mantem
+// a selecao no mesmo alerta enquanto chegam novos.
+func (m *Model) onAlert(msg alertMsg) tea.Cmd {
+	m.alerts = append([]*psychoscopev1.Alerta{msg.a}, m.alerts...)
+	if len(m.alerts) > maxAlerts {
+		m.alerts = m.alerts[:maxAlerts]
+	}
+	if m.alertSel > 0 {
+		m.alertSel = clamp(m.alertSel+1, 0, len(m.alerts)-1)
+	}
+	return waitAlert(m.stream)
+}
+
+func (m *Model) onStreamClosed() tea.Cmd {
+	m.streamOK = false
+	if m.stream != nil {
+		m.stream.Close()
+		m.stream = nil
+	}
+	return reopenAfter()
+}
+
+func (m *Model) onCommandDone(msg commandDoneMsg) tea.Cmd {
+	var status tea.Cmd
+	if msg.err != nil {
+		status = m.setStatus(fmt.Sprintf("%s: %v", msg.label, msg.err), true)
+	} else {
+		status = m.setStatus(msg.label+": ok", false)
+	}
+	return tea.Batch(m.fetchModules(), status)
+}
+
 func (m *Model) applyMetrics(ms []*psychoscopev1.Metrica, at time.Time) {
 	var events, dropped, alerts float64
 	for _, x := range ms {
@@ -328,214 +231,4 @@ func clamp(v, lo, hi int) int {
 		return lo
 	}
 	return max(lo, min(v, hi))
-}
-
-// ---- view ----
-
-var (
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#B48EFF"))
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("245"))
-	selStyle    = lipgloss.NewStyle().Reverse(true)
-	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-)
-
-func stateStyle(s psychoscopev1.EstadoModulo) lipgloss.Style {
-	switch s {
-	case psychoscopev1.EstadoModulo_ESTADO_CONECTADO:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	case psychoscopev1.EstadoModulo_ESTADO_PAUSADO:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	case psychoscopev1.EstadoModulo_ESTADO_INICIANDO, psychoscopev1.EstadoModulo_ESTADO_REINICIANDO:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	case psychoscopev1.EstadoModulo_ESTADO_FALHOU:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	}
-	return dimStyle
-}
-
-func sevStyle(s psychoscopev1.Severidade) lipgloss.Style {
-	switch s {
-	case psychoscopev1.Severidade_SEVERIDADE_BAIXA:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
-	case psychoscopev1.Severidade_SEVERIDADE_MEDIA:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
-	case psychoscopev1.Severidade_SEVERIDADE_ALTA:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	case psychoscopev1.Severidade_SEVERIDADE_CRITICA:
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231")).Background(lipgloss.Color("160"))
-	}
-	return dimStyle
-}
-
-func stateName(s psychoscopev1.EstadoModulo) string {
-	return strings.TrimPrefix(s.String(), "ESTADO_")
-}
-
-func sevName(s psychoscopev1.Severidade) string {
-	return strings.TrimPrefix(s.String(), "SEVERIDADE_")
-}
-
-// fit limita s a w colunas visiveis (preserva sequencias ANSI) e completa com espacos.
-func fit(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	s = ansi.Truncate(s, w, "…")
-	if pad := w - lipgloss.Width(s); pad > 0 {
-		s += strings.Repeat(" ", pad)
-	}
-	return s
-}
-
-func (m *Model) View() string {
-	w, h := max(m.width, 40), max(m.height, 12)
-
-	conn := okStyle.Render("● conectado")
-	if m.modsErr != nil {
-		conn = errStyle.Render("● sem conexão com o core")
-	}
-	stream := dimStyle.Render("alertas: reconectando")
-	if m.streamOK {
-		stream = dimStyle.Render("alertas: ao vivo")
-	}
-	line := titleStyle.Render("PSYCHOSCOPE") + dimStyle.Render(" MODR  ") + conn + dimStyle.Render("  ·  ") + stream
-	if m.haveMetrics {
-		line += dimStyle.Render(fmt.Sprintf("  ·  %.0f ev/s · %.0f alertas · %.0f descartes", m.evRate, m.alertsTotal, m.dropped))
-	}
-	header := fit(line, w)
-
-	footer := m.footer(w)
-	bodyH := h - 2 // cabecalho + rodape
-	modsH := min(len(m.mods)+4, max(bodyH*2/5, 5))
-	alertsH := bodyH - modsH
-
-	parts := []string{header, m.modulesPanel(w, modsH), m.alertsPanel(w, alertsH), footer}
-	return strings.Join(parts, "\n")
-}
-
-func (m *Model) footer(w int) string {
-	switch {
-	case m.confirm != nil:
-		return fit(errStyle.Render(fmt.Sprintf("Encerrar %q? (y/n)", m.confirm.module)), w)
-	case m.status != "":
-		st := okStyle
-		if m.statusErr {
-			st = errStyle
-		}
-		return fit(st.Render(m.status), w)
-	}
-	return fit(dimStyle.Render("↑/↓ selecionar · tab foco · p pausar · r retomar · x encerrar · q sair"), w)
-}
-
-func panel(title string, focused bool, lines []string, w, h int) string {
-	border := lipgloss.Color("240")
-	if focused {
-		border = lipgloss.Color("#B48EFF")
-	}
-	inner := max(w-2, 1)
-	rows := make([]string, 0, h)
-	t := " " + title + " "
-	top := "╭" + t + strings.Repeat("─", max(inner-lipgloss.Width(t), 0)) + "╮"
-	rows = append(rows, lipgloss.NewStyle().Foreground(border).Render(fit(top, w)))
-	bar := lipgloss.NewStyle().Foreground(border).Render("│")
-	for i := 0; i < h-2; i++ {
-		line := ""
-		if i < len(lines) {
-			line = lines[i]
-		}
-		rows = append(rows, bar+fit(line, inner)+bar)
-	}
-	rows = append(rows, lipgloss.NewStyle().Foreground(border).Render("╰"+strings.Repeat("─", inner)+"╯"))
-	return strings.Join(rows, "\n")
-}
-
-func (m *Model) modulesPanel(w, h int) string {
-	lines := []string{headerStyle.Render(fmt.Sprintf(" %-18s %-12s %7s %5s %9s %9s %8s  %-8s", "MÓDULO", "ESTADO", "PID", "REIN.", "EVENTOS", "PACOTES", "DESCART.", "CONTATO"))}
-	if len(m.mods) == 0 {
-		msg := "nenhum módulo configurado"
-		if m.modsErr != nil {
-			msg = "não foi possível consultar o core: " + m.modsErr.Error()
-		}
-		lines = append(lines, dimStyle.Render(" "+msg))
-	}
-	for i, mod := range m.mods {
-		st := mod.UltimoStatus
-		contato := "-"
-		if mod.UltimoContato != nil {
-			contato = mod.UltimoContato.AsTime().Local().Format(time.TimeOnly)
-		}
-		state := stateStyle(mod.Estado).Render(fmt.Sprintf("%-12s", stateName(mod.Estado)))
-		row := fmt.Sprintf(" %-18s %s %7d %5d %9d %9d %8d  %-8s",
-			trunc(mod.IdModulo, 18), state, mod.Pid, mod.Reinicios,
-			st.GetEventosProcessados(), st.GetPacotesCapturados(), st.GetPacotesDescartados(), contato)
-		if i == m.selected && m.focus == focusModules {
-			row = selStyle.Render(ansi.Strip(row))
-		} else if i == m.selected {
-			row = lipgloss.NewStyle().Bold(true).Render(row)
-		}
-		lines = append(lines, row)
-		if mod.UltimoErro != "" && i == m.selected {
-			lines = append(lines, errStyle.Render("   último erro: "+mod.UltimoErro))
-		}
-	}
-	return panel("Módulos", m.focus == focusModules, lines, w, h)
-}
-
-func (m *Model) alertsPanel(w, h int) string {
-	title := fmt.Sprintf("Alertas (%d)", len(m.alerts))
-	capacity := max(h-2, 1)
-	var lines []string
-	if len(m.alerts) == 0 {
-		lines = append(lines, dimStyle.Render(" nenhum alerta — o tráfego monitorado não disparou regras"))
-		return panel(title, m.focus == focusAlerts, lines, w, h)
-	}
-
-	detail := ""
-	if m.focus == focusAlerts {
-		detail = contextLine(m.alerts[m.alertSel])
-		capacity = max(capacity-1, 1)
-	}
-	start := 0
-	if m.alertSel >= capacity {
-		start = m.alertSel - capacity + 1
-	}
-	for i := start; i < len(m.alerts) && len(lines) < capacity; i++ {
-		a := m.alerts[i]
-		ts := "--:--:--"
-		if a.Timestamp != nil {
-			ts = a.Timestamp.AsTime().Local().Format(time.TimeOnly)
-		}
-		sev := sevStyle(a.Severidade).Render(fmt.Sprintf("%-7s", sevName(a.Severidade)))
-		row := fmt.Sprintf(" %s %s %-24s %s", ts, sev, trunc(a.Regra, 24), a.Descricao)
-		if i == m.alertSel && m.focus == focusAlerts {
-			row = selStyle.Render(ansi.Strip(row))
-		}
-		lines = append(lines, row)
-	}
-	if detail != "" {
-		lines = append(lines, dimStyle.Render(" "+detail))
-	}
-	return panel(title, m.focus == focusAlerts, lines, w, h)
-}
-
-func contextLine(a *psychoscopev1.Alerta) string {
-	keys := make([]string, 0, len(a.Contexto))
-	for k := range a.Contexto {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
-	for _, k := range keys {
-		parts = append(parts, k+"="+a.Contexto[k])
-	}
-	return strings.Join(parts, " ")
-}
-
-func trunc(s string, n int) string {
-	if len([]rune(s)) <= n {
-		return s
-	}
-	return string([]rune(s)[:n-1]) + "…"
 }
