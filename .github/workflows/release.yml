@@ -1,0 +1,78 @@
+name: release
+# Dispara ao publicar uma tag vX.Y.Z. Gera tarballs linux/amd64 e linux/arm64 com
+# SHA256SUMS e atestado de proveniencia, e cria a release no GitHub.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go vet ./...
+      - run: go test ./...
+      - run: ./deploy/test_install.sh
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: compilar e empacotar
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG="psychoscope-core_${VERSION}_linux_${{ matrix.goarch }}"
+          LDFLAGS="-s -w -X github.com/psychoscope-io/psychoscope-core/internal/version.Version=${VERSION}"
+          mkdir -p "dist/$PKG"
+          go build -trimpath -ldflags "$LDFLAGS" -o "dist/$PKG/psychoscope" ./cmd/psychoscope
+          go build -trimpath -ldflags "$LDFLAGS" -o "dist/$PKG/psychoscope-cli" ./cmd/psychoscope-cli
+          cp -r LICENSE README.md deploy docs "dist/$PKG/"
+          rm -f "dist/$PKG/deploy/test_install.sh"
+          tar -C dist -czf "dist/$PKG.tar.gz" "$PKG"
+          rm -rf "dist/$PKG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-${{ matrix.goarch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: core-*
+          merge-multiple: true
+      - name: checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.tar.gz
+      - name: criar a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

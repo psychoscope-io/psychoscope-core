@@ -1,0 +1,26 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "arquivos fora do padrao gofmt:" >&2
+            echo "$out" >&2
+            exit 1
+          fi
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go build ./cmd/psychoscope ./cmd/psychoscope-cli
+      - name: testes do install.sh
+        run: ./deploy/test_install.sh
+      - name: unit do systemd
+        run: |
+          sed 's#/usr/local/bin/psychoscope#/bin/true#' deploy/systemd/psychoscope.service > /tmp/psychoscope.service
+          systemd-analyze verify --man=no /tmp/psychoscope.service
