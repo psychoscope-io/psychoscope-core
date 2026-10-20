@@ -36,10 +36,13 @@ done
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 BIN_DIR="${BIN_DIR:-$ROOT}"
-[ -x "$BIN_DIR/psychoscope" ] && [ -x "$BIN_DIR/psychoscope-cli" ] ||
+if [ ! -x "$BIN_DIR/psychoscope" ] || [ ! -x "$BIN_DIR/psychoscope-cli" ]; then
   die "binarios psychoscope e psychoscope-cli nao encontrados em $BIN_DIR (rode a partir do tarball de release ou use --bin-dir)"
+fi
 [ -z "$SENSOR" ] || [ -x "$SENSOR" ] || die "sensor nao encontrado ou nao executavel: $SENSOR"
-[ -f "$HERE/systemd/psychoscope.service" ] && [ -f "$HERE/psychoscope.json.example" ] || die "arquivos de deploy ausentes em $HERE"
+if [ ! -f "$HERE/systemd/psychoscope.service" ] || [ ! -f "$HERE/psychoscope.json.example" ]; then
+  die "arquivos de deploy ausentes em $HERE"
+fi
 
 if [ -z "$DESTDIR" ] && [ "$DRY" = 0 ] && [ "$(id -u)" != 0 ]; then
   die "execute como root (sudo), ou use --destdir/--dry-run"
