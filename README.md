@@ -13,7 +13,7 @@ Fase 3 concluída: daemon funcional com
 - **Canal de controle** (`internal/ctl`): `ctl.sock` com `control.proto` (listar módulos, enviar comando, assinar alertas); barramento de alertas em `internal/alerts`.
 - **Daemon** `cmd/psychoscope` e **CLI** `cmd/psychoscope-cli` (`list`, `cmd <modulo> pause|resume|reconfigure|stop`, `alerts`).
 
-Ainda não: motor de detecção/regras e TUI Bubbletea (Fase 5), módulo real em Rust (Fase 4).
+Ainda não: motor de detecção/regras e TUI Bubbletea (Fase 5). O sensor real (`mod-net-sensor`) já conversa com este daemon: veja `scripts/e2e.sh` e `scripts/live_smoke.sh` naquele repositório.
 
 ## Uso rápido
 
@@ -41,5 +41,4 @@ Sockets: `/var/run/psychoscope/` se existir e for gravável (ex.: `RuntimeDirect
 
 - `go.mod` usa `replace` para `../psychoscope-proto` durante o desenvolvimento; remover antes de publicar.
 - `testdata/framing_vectors.json` é cópia de `psychoscope-proto/testdata/`.
-- `cmd/ipc-interop` é um servidor de desenvolvimento usado só por `mod-net-sensor/scripts/interop.sh`; remover quando o sensor real falar com o daemon.
 - `internal/testmod` é um módulo falso para testes (o binário de teste se re-executa como filho).

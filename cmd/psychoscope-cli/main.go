@@ -60,13 +60,15 @@ func run(sock string, args []string) error {
 			return err
 		}
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "MODULO\tESTADO\tPID\tREINICIOS\tULTIMO CONTATO\tERRO")
+		fmt.Fprintln(tw, "MODULO\tESTADO\tPID\tREINICIOS\tEVENTOS\tPACOTES\tDESCARTES\tULTIMO CONTATO\tERRO")
 		for _, m := range r.GetModulos().GetModulos() {
 			contato := "-"
 			if m.UltimoContato != nil {
 				contato = m.UltimoContato.AsTime().Local().Format(time.TimeOnly)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%s\t%s\n", m.IdModulo, strings.TrimPrefix(m.Estado.String(), "ESTADO_"), m.Pid, m.Reinicios, contato, m.UltimoErro)
+			st := m.UltimoStatus
+			fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", m.IdModulo, strings.TrimPrefix(m.Estado.String(), "ESTADO_"), m.Pid, m.Reinicios,
+				st.GetEventosProcessados(), st.GetPacotesCapturados(), st.GetPacotesDescartados(), contato, m.UltimoErro)
 		}
 		return tw.Flush()
 
