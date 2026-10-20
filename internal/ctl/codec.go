@@ -14,7 +14,7 @@ func marshal(r *psychoscopev1.RespostaControle) ([]byte, error) { return proto.M
 func unmarshalRequest(b []byte) (*psychoscopev1.RequisicaoControle, error) {
 	req := &psychoscopev1.RequisicaoControle{}
 	if err := proto.Unmarshal(b, req); err != nil {
-		return nil, fmt.Errorf("%w: %v", errBadRequest, err)
+		return nil, fmt.Errorf("%w: %w", errBadRequest, err)
 	}
 	return req, nil
 }

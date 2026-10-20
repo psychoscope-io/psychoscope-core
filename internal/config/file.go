@@ -55,7 +55,7 @@ func readFile(path string) (fileConfig, error) {
 	if path == "" {
 		return fc, nil
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // caminho dado pelo operador na linha de comando
 	if err != nil {
 		return fc, err
 	}

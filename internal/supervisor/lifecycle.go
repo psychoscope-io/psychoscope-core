@@ -87,7 +87,7 @@ func (s *Supervisor) runModule(ctx context.Context, m *managed) {
 }
 
 func (s *Supervisor) buildCmd(sp config.ModuleSpec) *exec.Cmd {
-	cmd := exec.Command(sp.Path, sp.Args...)
+	cmd := exec.Command(sp.Path, sp.Args...) //nolint:gosec // o binario do modulo vem da configuracao do operador (root)
 	cmd.Env = append([]string{
 		"PATH=" + os.Getenv("PATH"),
 		"PSYCHOSCOPE_SOCKET=" + s.opt.SocketPath,
@@ -170,14 +170,14 @@ func (s *Supervisor) terminate(m *managed, cmd *exec.Cmd, exited <-chan error) {
 	}
 	s.log.Warn("modulo ignorou SIGTERM; enviando SIGKILL", "modulo", m.spec.ID)
 	signalGroup(cmd, syscall.SIGKILL)
-	<-exited
+	<-exited //nolint:errcheck // so espera o fim do processo
 }
 
 func waitExit(exited <-chan error, d time.Duration) bool {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
-	case <-exited:
+	case <-exited: //nolint:errcheck // so espera o fim do processo
 		return true
 	case <-t.C:
 		return false

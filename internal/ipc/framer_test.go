@@ -87,7 +87,7 @@ func checkExpect(t *testing.T, expect string, payload, want []byte, err error) {
 			t.Fatalf("payload diferente (len %d vs %d)", len(payload), len(want))
 		}
 	case "eof":
-		if err != io.EOF {
+		if !errors.Is(err, io.EOF) {
 			t.Fatalf("esperado io.EOF, obtido %v", err)
 		}
 	case "empty":

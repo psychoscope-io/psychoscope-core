@@ -40,10 +40,10 @@ func (s *Server) handshake(conn *net.UnixConn) (*Session, error) {
 		return nil, s.deny(conn, h, cred, public, cause)
 	}
 	sess := newSession(s, conn, h, cred)
-	switch s.register(sess) {
-	case errClosing:
+	switch err := s.register(sess); {
+	case errors.Is(err, errClosing):
 		return nil, errClosing
-	case errDuplicate:
+	case errors.Is(err, errDuplicate):
 		return nil, s.deny(conn, h, cred, "modulo ja conectado", errDuplicate)
 	}
 	if err := s.acceptHello(conn); err != nil {
@@ -116,7 +116,7 @@ func (s *Server) acceptHello(conn *net.UnixConn) error {
 		IdMensagem: NewID(), Timestamp: timestamppb.Now(),
 		Payload: &psychoscopev1.MensagemIPC_HelloResposta{HelloResposta: &psychoscopev1.HelloResposta{
 			Aceito: true, VersaoCore: s.cfg.CoreVersion,
-			IntervaloStatusSeg: uint32(max(1, int(s.cfg.StatusInterval/time.Second))),
+			IntervaloStatusSeg: uint32(max(1, int(s.cfg.StatusInterval/time.Second))), //nolint:gosec // intervalo validado em Config.Validate
 		}},
 	})
 }

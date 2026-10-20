@@ -23,7 +23,7 @@ type BruteForce struct {
 func NewBruteForce(cfg BruteForceConfig) *BruteForce {
 	b := &BruteForce{cfg: cfg, ports: map[uint32]bool{}}
 	for _, p := range cfg.Ports {
-		b.ports[uint32(p)] = true
+		b.ports[uint32(p)] = true //nolint:gosec // porta validada em Config.Validate (1-65535)
 	}
 	b.ignore, _ = parseSources(cfg.IgnoreSources) // validado em Config.Validate
 	return b

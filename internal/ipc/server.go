@@ -107,7 +107,7 @@ func (s *Server) Serve(ctx context.Context) error {
 			closing := s.closing
 			s.mu.Unlock()
 			if closing || ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
-				return nil
+				return nil //nolint:nilerr // encerramento pedido: nao e falha
 			}
 			return err
 		}
@@ -115,14 +115,14 @@ func (s *Server) Serve(ctx context.Context) error {
 		case s.hs <- struct{}{}:
 		default:
 			s.log.Warn("handshakes simultaneos demais; conexao recusada")
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 		s.mu.Lock()
 		if s.closing {
 			s.mu.Unlock()
 			<-s.hs
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 		s.conns[conn] = struct{}{}
@@ -188,7 +188,7 @@ func (s *Server) handle(conn *net.UnixConn) {
 		s.mu.Lock()
 		delete(s.conns, conn)
 		s.mu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	sess, err := s.handshake(conn)
@@ -219,7 +219,7 @@ func (s *Server) readLoop(sess *Session) error {
 		if err != nil {
 			var ne net.Error
 			switch {
-			case err == io.EOF:
+			case errors.Is(err, io.EOF):
 				return nil
 			case errors.Is(err, net.ErrClosed):
 				return sess.Err()

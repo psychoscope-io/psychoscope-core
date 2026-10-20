@@ -75,7 +75,7 @@ func (d *daemon) assemble(ctx context.Context) error {
 	if err := d.openStore(ctx); err != nil {
 		return err
 	}
-	policy := ipc.NewUIDPolicy(uint32(os.Geteuid()), d.cfg.AllowedUIDs)
+	policy := ipc.NewUIDPolicy(uint32(os.Geteuid()), d.cfg.AllowedUIDs) //nolint:gosec // UID do kernel nao e negativo
 	d.sup = supervisor.New(supervisor.Options{
 		Specs: d.cfg.Modules, SocketPath: d.cfg.SocketPath, UIDs: policy,
 		AllowUnmanaged: d.cfg.AllowUnmanaged, Logger: d.log.With("componente", "supervisor"),
@@ -88,7 +88,7 @@ func (d *daemon) assemble(ctx context.Context) error {
 
 func (d *daemon) closeStore() {
 	if d.store != nil {
-		d.store.Close()
+		_ = d.store.Close()
 	}
 }
 

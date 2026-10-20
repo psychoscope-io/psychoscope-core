@@ -27,7 +27,7 @@ func (s *Supervisor) Authorize(h *psychoscopev1.HelloModulo, cred ipc.PeerCred) 
 	m.mu.Lock()
 	pid := m.pid
 	m.mu.Unlock()
-	if pid == 0 || int32(pid) != cred.PID {
+	if pid == 0 || int32(pid) != cred.PID { //nolint:gosec // PID do kernel cabe em int32
 		return fmt.Errorf("pid %d nao e o filho lancado de %q (filho=%d)", cred.PID, h.IdModulo, pid)
 	}
 	return nil

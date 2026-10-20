@@ -175,7 +175,7 @@ func Serve(ctx context.Context, ln net.Listener, h http.Handler) error {
 		sctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(sctx)
-		<-errc
+		<-errc //nolint:errcheck // so espera o servidor parar
 		return nil
 	case err := <-errc:
 		return err

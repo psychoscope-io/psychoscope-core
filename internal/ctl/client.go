@@ -113,16 +113,16 @@ func (c *Client) StreamAlerts(ctx context.Context, history bool) (*AlertStream, 
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	if err := WriteRequest(conn, &psychoscopev1.RequisicaoControle{IdRequisicao: "alerts",
 		Pedido: &psychoscopev1.RequisicaoControle_AssinarAlertas{AssinarAlertas: &psychoscopev1.PedidoAssinarAlertas{IncluirHistorico: history}}}); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	ack, err := ReadResponse(conn)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	if !ack.Sucesso {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("assinatura recusada: %s", ack.MensagemErro)
 	}
 	_ = conn.SetDeadline(time.Time{})
@@ -163,7 +163,7 @@ type AlertQuery struct {
 // Alerts consulta o historico de alertas (mais novo primeiro) e o total que casa com o filtro.
 func (c *Client) Alerts(ctx context.Context, q AlertQuery) ([]*psychoscopev1.Alerta, uint64, error) {
 	req := &psychoscopev1.PedidoListarAlertas{
-		Limite: uint32(max(q.Limit, 0)), SeveridadeMinima: q.MinSeverity, Regra: q.Rule, IdModulo: q.Module,
+		Limite: uint32(max(q.Limit, 0)), SeveridadeMinima: q.MinSeverity, Regra: q.Rule, IdModulo: q.Module, //nolint:gosec // limite nao negativo (max com 0)
 	}
 	if !q.Since.IsZero() {
 		req.Desde = timestamppb.New(q.Since)

@@ -16,7 +16,7 @@ var durationType = reflect.TypeOf(time.Duration(0))
 // e erro (lista as validas); campos time.Duration aceitam strings como "10s" ou "2m".
 func overlayStruct(raw json.RawMessage, dst any, path string) error {
 	v := reflect.ValueOf(dst)
-	if v.Kind() != reflect.Ptr || v.Elem().Kind() != reflect.Struct {
+	if v.Kind() != reflect.Pointer || v.Elem().Kind() != reflect.Struct {
 		return fmt.Errorf("%s: destino invalido", path)
 	}
 	v = v.Elem()

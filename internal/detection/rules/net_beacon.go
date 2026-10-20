@@ -46,7 +46,7 @@ func NewBeacon(cfg BeaconConfig) *Beacon {
 		b.ignoreDom = append(b.ignoreDom, strings.ToLower(strings.TrimSuffix(d, ".")))
 	}
 	for _, p := range cfg.IgnorePorts {
-		b.ignorePort[uint32(p)] = true
+		b.ignorePort[uint32(p)] = true //nolint:gosec // porta validada em Config.Validate (1-65535)
 	}
 	return b
 }

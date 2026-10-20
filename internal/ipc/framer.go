@@ -81,7 +81,7 @@ func WriteFrame(w io.Writer, payload []byte) error {
 	}
 
 	buf := make([]byte, HeaderSize+len(payload))
-	binary.BigEndian.PutUint32(buf[:HeaderSize], uint32(len(payload)))
+	binary.BigEndian.PutUint32(buf[:HeaderSize], uint32(len(payload))) //nolint:gosec // tamanho limitado a MaxFrameSize acima
 	copy(buf[HeaderSize:], payload)
 
 	_, err := w.Write(buf) // io.Writer garante err != nil em escrita curta

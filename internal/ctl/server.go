@@ -106,7 +106,7 @@ func (s *Server) Serve(ctx context.Context) error {
 			closing := s.closing
 			s.mu.Unlock()
 			if closing || ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
-				return nil
+				return nil //nolint:nilerr // encerramento pedido: nao e falha
 			}
 			return err
 		}
@@ -114,14 +114,14 @@ func (s *Server) Serve(ctx context.Context) error {
 		case s.slots <- struct{}{}:
 		default:
 			s.log.Warn("ctl: conexoes demais; recusada")
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 		s.mu.Lock()
 		if s.closing {
 			s.mu.Unlock()
 			<-s.slots
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 		s.conns[conn] = struct{}{}
@@ -173,7 +173,7 @@ func (s *Server) handle(conn *net.UnixConn) {
 		s.mu.Lock()
 		delete(s.conns, conn)
 		s.mu.Unlock()
-		conn.Close()
+		_ = conn.Close()
 	}()
 
 	cred, err := ipc.PeerCredOf(conn)
@@ -197,7 +197,7 @@ func (s *Server) handle(conn *net.UnixConn) {
 	for {
 		b, err := ipc.ReadFrame(conn, 0)
 		if err != nil {
-			if err != io.EOF && !errors.Is(err, net.ErrClosed) {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
 				s.log.Warn("ctl: leitura", "uid", cred.UID, "pid", cred.PID, "err", err)
 			}
 			return
@@ -310,7 +310,7 @@ func (c *clientConn) forwardAlerts(id string, sub *alerts.Subscription) {
 // InfoToProto converte o retrato do supervisor para a mensagem do canal de controle.
 func InfoToProto(in supervisor.Info) *psychoscopev1.ModuloInfo {
 	m := &psychoscopev1.ModuloInfo{
-		IdModulo: in.ID, Estado: in.State, Pid: uint32(max(in.PID, 0)),
+		IdModulo: in.ID, Estado: in.State, Pid: uint32(max(in.PID, 0)), //nolint:gosec // PID nao negativo (max com 0)
 		Reinicios: in.Restarts, UltimoStatus: in.LastStatus, UltimoErro: in.LastError,
 	}
 	if !in.LastContact.IsZero() {

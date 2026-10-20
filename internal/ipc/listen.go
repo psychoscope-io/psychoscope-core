@@ -31,7 +31,7 @@ func ListenUnix(path string, mode os.FileMode, log *slog.Logger) (*net.UnixListe
 			return nil, fmt.Errorf("%s existe e nao e um socket", path)
 		}
 		if c, derr := net.DialTimeout("unix", path, time.Second); derr == nil {
-			c.Close()
+			_ = c.Close()
 			return nil, fmt.Errorf("%s: ja existe uma instancia em execucao", path)
 		}
 		log.Warn("removendo socket obsoleto", "path", path)
@@ -51,7 +51,7 @@ func ListenUnix(path string, mode os.FileMode, log *slog.Logger) (*net.UnixListe
 		return nil, err
 	}
 	if err := os.Chmod(path, mode); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return nil, err
 	}
 	return ln, nil

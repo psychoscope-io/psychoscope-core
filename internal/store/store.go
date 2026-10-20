@@ -113,7 +113,7 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("store: criando diretorio: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600) //nolint:gosec // caminho vem da configuracao do operador
 	if err != nil {
 		return nil, fmt.Errorf("store: abrindo %s: %w", path, err)
 	}
@@ -128,7 +128,7 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	s := &Store{db: db, path: path}
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
@@ -246,7 +246,7 @@ func (s *Store) Query(ctx context.Context, f Filter) ([]*psychoscopev1.Alerta, u
 		return nil, 0, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, ts_ns, regra, severidade, descricao, id_modulo, contexto FROM alerts"+where+" ORDER BY ts_ns DESC, id DESC LIMIT ?",
+		"SELECT id, ts_ns, regra, severidade, descricao, id_modulo, contexto FROM alerts"+where+" ORDER BY ts_ns DESC, id DESC LIMIT ?", //nolint:gosec // where tem so fragmentos fixos e placeholders
 		append(args, f.limit())...)
 	if err != nil {
 		return nil, 0, err
