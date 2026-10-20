@@ -3,17 +3,21 @@ package ctl
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/alerts"
 	"github.com/psychoscope-io/psychoscope-core/internal/ipc"
+	"github.com/psychoscope-io/psychoscope-core/internal/store"
 	"github.com/psychoscope-io/psychoscope-core/internal/supervisor"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type fakeBackend struct {
@@ -327,5 +331,124 @@ func TestClientErrors(t *testing.T) {
 	cancel()
 	if _, err := cl.List(ctx); err == nil {
 		t.Fatal("contexto cancelado deve falhar")
+	}
+}
+
+func startWith(t *testing.T, mutate func(*Config)) (*Client, *alerts.Bus) {
+	t.Helper()
+	bus := alerts.NewBus()
+	path := filepath.Join(t.TempDir(), "ctl.sock")
+	cfg := Config{Path: path, Backend: &fakeBackend{}, Alerts: bus, UIDs: me(), CommandTimeout: time.Second}
+	mutate(&cfg)
+	srv, err := NewServer(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.Listen(); err != nil {
+		t.Skipf("unix sockets indisponiveis: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = srv.Serve(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); srv.Shutdown(); <-done })
+	return &Client{Path: path, CallTimeout: 3 * time.Second}, bus
+}
+
+func mkAlert(id, rule string, sev psychoscopev1.Severidade, at time.Time) *psychoscopev1.Alerta {
+	return &psychoscopev1.Alerta{IdAlerta: id, Regra: rule, Severidade: sev, Timestamp: timestamppb.New(at),
+		IdModuloOrigem: "mod-a", Descricao: "d " + id, Contexto: map[string]string{"k": id}}
+}
+
+func TestListAlertsFromPersistentStore(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	base := time.Unix(1_700_000_000, 0)
+	var as []*psychoscopev1.Alerta
+	for i := 0; i < 20; i++ {
+		sev := psychoscopev1.Severidade_SEVERIDADE_BAIXA
+		if i%2 == 0 {
+			sev = psychoscopev1.Severidade_SEVERIDADE_ALTA
+		}
+		as = append(as, mkAlert(fmt.Sprintf("id%02d", i), "net.scan.syn", sev, base.Add(time.Duration(i)*time.Minute)))
+	}
+	_ = st.Insert(context.Background(), as)
+	cl, _ := startWith(t, func(c *Config) { c.Store = st })
+	ctx := context.Background()
+
+	got, total, err := cl.Alerts(ctx, AlertQuery{Limit: 3})
+	if err != nil || total != 20 || len(got) != 3 || got[0].IdAlerta != "id19" {
+		t.Fatalf("limite/total/ordem: %v total=%d err=%v", got, total, err)
+	}
+	got, total, _ = cl.Alerts(ctx, AlertQuery{MinSeverity: psychoscopev1.Severidade_SEVERIDADE_ALTA, Since: base.Add(10 * time.Minute)})
+	if total != 5 || len(got) != 5 || got[0].IdAlerta != "id18" {
+		t.Fatalf("filtros: total=%d %v", total, got)
+	}
+	if got, total, _ = cl.Alerts(ctx, AlertQuery{Rule: "outra"}); total != 0 || len(got) != 0 {
+		t.Fatalf("regra inexistente: %v %d", got, total)
+	}
+	if a := got; a != nil {
+		t.Fatal("lista vazia deve ser nil")
+	}
+	// limite enorme e reduzido ao maximo do servidor sem erro
+	if got, _, err = cl.Alerts(ctx, AlertQuery{Limit: 1 << 30}); err != nil || len(got) != 20 {
+		t.Fatalf("limite grande: %d %v", len(got), err)
+	}
+	full, _, _ := cl.Alerts(ctx, AlertQuery{Limit: 1})
+	if full[0].Contexto["k"] != "id19" || full[0].Timestamp == nil || full[0].IdModuloOrigem != "mod-a" {
+		t.Fatalf("campos do alerta: %v", full[0])
+	}
+}
+
+func TestListAlertsFallsBackToMemoryHistory(t *testing.T) {
+	cl, bus := startWith(t, func(c *Config) {})
+	base := time.Unix(1_700_000_000, 0)
+	for i := 0; i < 6; i++ {
+		sev := psychoscopev1.Severidade_SEVERIDADE_MEDIA
+		if i >= 4 {
+			sev = psychoscopev1.Severidade_SEVERIDADE_CRITICA
+		}
+		bus.Publish(mkAlert(fmt.Sprintf("m%d", i), "r", sev, base.Add(time.Duration(i)*time.Second)))
+	}
+	got, total, err := cl.Alerts(context.Background(), AlertQuery{Limit: 2, MinSeverity: psychoscopev1.Severidade_SEVERIDADE_CRITICA})
+	if err != nil || total != 2 || len(got) != 2 || got[0].IdAlerta != "m5" || got[1].IdAlerta != "m4" {
+		t.Fatalf("memoria: %v total=%d err=%v", got, total, err)
+	}
+	got, total, _ = cl.Alerts(context.Background(), AlertQuery{Limit: 2})
+	if total != 6 || len(got) != 2 || got[0].IdAlerta != "m5" {
+		t.Fatalf("total ignora o limite: %d %v", total, got)
+	}
+}
+
+type failingStore struct{}
+
+func (failingStore) Query(context.Context, store.Filter) ([]*psychoscopev1.Alerta, uint64, error) {
+	return nil, 0, errors.New("segredo interno do banco")
+}
+
+func TestListAlertsStoreErrorIsGeneric(t *testing.T) {
+	cl, _ := startWith(t, func(c *Config) { c.Store = failingStore{} })
+	_, _, err := cl.Alerts(context.Background(), AlertQuery{})
+	if err == nil || strings.Contains(err.Error(), "segredo") {
+		t.Fatalf("erro deve existir sem vazar detalhes internos: %v", err)
+	}
+}
+
+func TestMetricsRequest(t *testing.T) {
+	cl, _ := startWith(t, func(c *Config) {
+		c.Metrics = func() []*psychoscopev1.Metrica {
+			return []*psychoscopev1.Metrica{{Nome: "x_total", Tipo: psychoscopev1.TipoMetrica_TIPO_METRICA_CONTADOR, Valor: 3,
+				Rotulos: map[string]string{"module": "m"}}}
+		}
+	})
+	ms, err := cl.Metrics(context.Background())
+	if err != nil || len(ms) != 1 || ms[0].Nome != "x_total" || ms[0].Valor != 3 || ms[0].Rotulos["module"] != "m" {
+		t.Fatalf("metricas: %v %v", ms, err)
+	}
+	cl2, _ := startWith(t, func(c *Config) {})
+	if ms, err := cl2.Metrics(context.Background()); err != nil || len(ms) != 0 {
+		t.Fatalf("sem coletor, lista vazia: %v %v", ms, err)
 	}
 }

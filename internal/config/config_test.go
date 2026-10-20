@@ -151,3 +151,70 @@ func TestDetectionDefaultsOverlayAndValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestStorageAndMetricsConfig(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		p := filepath.Join(dir, "s.json")
+		os.WriteFile(p, []byte(body), 0o600)
+		return p
+	}
+	e := env(1000, map[string]string{"XDG_STATE_HOME": "/home/u/.state"})
+	c, err := Load([]string{"-config", write(`{}`)}, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Storage.Enabled || c.Storage.Path != "/home/u/.state/psychoscope/alerts.db" || c.Storage.RetentionDays != 30 ||
+		c.Storage.MaxAlerts != 100_000 || c.Metrics.Listen != "" {
+		t.Fatalf("defaults: %+v %+v", c.Storage, c.Metrics)
+	}
+	if c.Storage.Retention() != 30*24*time.Hour {
+		t.Fatal("Retention")
+	}
+
+	c, err = Load([]string{"-config", write(`{"storage":{"enabled":false,"path":"/x/a.db","retention_days":0,"max_alerts":5},
+		"metrics":{"listen":"127.0.0.1:9464"}}`)}, e)
+	if err != nil || c.Storage.Enabled || c.Storage.Path != "/x/a.db" || c.Storage.RetentionDays != 0 || c.Storage.MaxAlerts != 5 ||
+		c.Metrics.Listen != "127.0.0.1:9464" {
+		t.Fatalf("overlay: %+v %+v %v", c.Storage, c.Metrics, err)
+	}
+	for _, l := range []string{"localhost:9464", "[::1]:9464"} {
+		if _, err := Load([]string{"-config", write(`{"metrics":{"listen":"` + l + `"}}`)}, e); err != nil {
+			t.Errorf("%s deveria ser aceito: %v", l, err)
+		}
+	}
+	for name, body := range map[string]string{
+		"exposto sem autenticacao": `{"metrics":{"listen":"0.0.0.0:9464"}}`,
+		"sem host":                 `{"metrics":{"listen":":9464"}}`,
+		"hostname externo":         `{"metrics":{"listen":"example.com:9464"}}`,
+		"sem porta":                `{"metrics":{"listen":"127.0.0.1"}}`,
+		"retencao negativa":        `{"storage":{"retention_days":-1}}`,
+		"campo desconhecido":       `{"storage":{"bogus":1}}`,
+	} {
+		if _, err := Load([]string{"-config", write(body)}, e); err == nil {
+			t.Errorf("%s: esperado erro", name)
+		}
+	}
+	if _, err := Load([]string{"-config", write(`{"metrics":{"listen":"0.0.0.0:9464","allow_non_loopback":true}}`)}, e); err != nil {
+		t.Errorf("allow_non_loopback deveria liberar: %v", err)
+	}
+}
+
+func TestDefaultStateDir(t *testing.T) {
+	cases := []struct {
+		name string
+		e    Env
+		want string
+	}{
+		{"root", env(0, nil), "/var/lib/psychoscope"},
+		{"StateDirectory do systemd", env(1000, map[string]string{"HOME": "/home/u"}, "/var/lib/psychoscope"), "/var/lib/psychoscope"},
+		{"XDG_STATE_HOME", env(1000, map[string]string{"XDG_STATE_HOME": "/s", "HOME": "/home/u"}), "/s/psychoscope"},
+		{"HOME", env(1000, map[string]string{"HOME": "/home/u"}), "/home/u/.local/state/psychoscope"},
+		{"nada", env(1000, nil), "/var/lib/psychoscope"},
+	}
+	for _, c := range cases {
+		if got := DefaultStateDir(c.e); got != c.want {
+			t.Errorf("%s: %q != %q", c.name, got, c.want)
+		}
+	}
+}

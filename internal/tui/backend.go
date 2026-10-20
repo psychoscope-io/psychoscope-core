@@ -21,6 +21,7 @@ type Backend interface {
 	List(ctx context.Context) ([]*psychoscopev1.ModuloInfo, error)
 	Command(ctx context.Context, module string, acao psychoscopev1.ComandoControle_TipoAcao) error
 	StreamAlerts(ctx context.Context) (Stream, error)
+	Metrics(ctx context.Context) ([]*psychoscopev1.Metrica, error)
 }
 
 // ClientBackend adapta ctl.Client ao Backend.
@@ -32,6 +33,10 @@ func (b ClientBackend) List(ctx context.Context) ([]*psychoscopev1.ModuloInfo, e
 
 func (b ClientBackend) Command(ctx context.Context, module string, acao psychoscopev1.ComandoControle_TipoAcao) error {
 	return b.Client.Command(ctx, module, acao, nil)
+}
+
+func (b ClientBackend) Metrics(ctx context.Context) ([]*psychoscopev1.Metrica, error) {
+	return b.Client.Metrics(ctx)
 }
 
 type clientStream struct{ s *ctl.AlertStream }

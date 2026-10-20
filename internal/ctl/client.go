@@ -9,6 +9,7 @@ import (
 	"time"
 
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Client fala com o ctl.sock do Core. Chamadas de requisicao/resposta abrem uma
@@ -148,4 +149,40 @@ func (c *Client) StreamAlerts(ctx context.Context, history bool) (*AlertStream, 
 		}
 	}()
 	return s, nil
+}
+
+// AlertQuery filtra a consulta de alertas persistidos (campos zerados nao filtram).
+type AlertQuery struct {
+	Limit       int
+	Since       time.Time
+	MinSeverity psychoscopev1.Severidade
+	Rule        string
+	Module      string
+}
+
+// Alerts consulta o historico de alertas (mais novo primeiro) e o total que casa com o filtro.
+func (c *Client) Alerts(ctx context.Context, q AlertQuery) ([]*psychoscopev1.Alerta, uint64, error) {
+	req := &psychoscopev1.PedidoListarAlertas{
+		Limite: uint32(max(q.Limit, 0)), SeveridadeMinima: q.MinSeverity, Regra: q.Rule, IdModulo: q.Module,
+	}
+	if !q.Since.IsZero() {
+		req.Desde = timestamppb.New(q.Since)
+	}
+	r, err := c.call(ctx, &psychoscopev1.RequisicaoControle{IdRequisicao: "alerts-query",
+		Pedido: &psychoscopev1.RequisicaoControle_ListarAlertas{ListarAlertas: req}})
+	if err != nil {
+		return nil, 0, err
+	}
+	l := r.GetAlertas()
+	return l.GetAlertas(), l.GetTotal(), nil
+}
+
+// Metrics devolve o instantaneo de metricas do Core.
+func (c *Client) Metrics(ctx context.Context) ([]*psychoscopev1.Metrica, error) {
+	r, err := c.call(ctx, &psychoscopev1.RequisicaoControle{IdRequisicao: "metrics",
+		Pedido: &psychoscopev1.RequisicaoControle_Metricas{Metricas: &psychoscopev1.PedidoMetricas{}}})
+	if err != nil {
+		return nil, err
+	}
+	return r.GetMetricas().GetMetricas(), nil
 }

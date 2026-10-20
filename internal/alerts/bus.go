@@ -38,6 +38,21 @@ func NewBusWithHistory(n int) *Bus {
 	return &Bus{subs: map[*Subscription]struct{}{}, histCap: max(n, 0)}
 }
 
+// Seed preenche o historico com alertas anteriores (do mais antigo ao mais novo), por
+// exemplo recuperados do disco na partida. So age se o historico ainda estiver vazio e
+// retem no maximo os historyCap mais recentes. Nao notifica assinantes.
+func (b *Bus) Seed(past []*psychoscopev1.Alerta) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.history) > 0 || b.histCap == 0 {
+		return
+	}
+	if len(past) > b.histCap {
+		past = past[len(past)-b.histCap:]
+	}
+	b.history = append(b.history, past...)
+}
+
 // Recent devolve uma copia do historico, do mais antigo ao mais novo.
 func (b *Bus) Recent() []*psychoscopev1.Alerta {
 	b.mu.Lock()

@@ -15,10 +15,16 @@ import (
 
 	"github.com/psychoscope-io/psychoscope-core/internal/alerts"
 	"github.com/psychoscope-io/psychoscope-core/internal/ipc"
+	"github.com/psychoscope-io/psychoscope-core/internal/store"
 	"github.com/psychoscope-io/psychoscope-core/internal/supervisor"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// AlertSource consulta alertas persistidos (satisfeito por *store.Store).
+type AlertSource interface {
+	Query(ctx context.Context, f store.Filter) ([]*psychoscopev1.Alerta, uint64, error)
+}
 
 // Backend e o que o canal de controle precisa do Core (satisfeito por *supervisor.Supervisor).
 type Backend interface {
@@ -34,8 +40,13 @@ type Config struct {
 	Alerts         *alerts.Bus
 	UIDs           ipc.UIDPolicy
 	CommandTimeout time.Duration // prazo total de um EnviarComando (ENCERRAR pode levar StopGrace)
-	MaxConns       int
-	Logger         *slog.Logger
+	// Store, se presente, atende PedidoListarAlertas com o historico persistido; sem ele,
+	// responde com o historico em memoria do Bus.
+	Store AlertSource
+	// Metrics, se presente, atende PedidoMetricas; sem ele a lista vem vazia.
+	Metrics  func() []*psychoscopev1.Metrica
+	MaxConns int
+	Logger   *slog.Logger
 }
 
 // Server atende clientes (CLI/TUI) em ctl.sock.
@@ -248,6 +259,19 @@ func (c *clientConn) dispatch(req *psychoscopev1.RequisicaoControle) error {
 		go c.forwardAlerts(id, c.sub)
 		return nil
 
+	case *psychoscopev1.RequisicaoControle_ListarAlertas:
+		return c.send(c.listAlerts(id, p.ListarAlertas))
+
+	case *psychoscopev1.RequisicaoControle_Metricas:
+		lista := &psychoscopev1.ListaMetricas{}
+		if c.srv.cfg.Metrics != nil {
+			lista.Metricas = c.srv.cfg.Metrics()
+		}
+		return c.send(&psychoscopev1.RespostaControle{
+			IdRequisicaoReferencia: id, Sucesso: true,
+			Resultado: &psychoscopev1.RespostaControle_Metricas{Metricas: lista},
+		})
+
 	default:
 		return c.send(fail(id, "pedido vazio ou desconhecido"))
 	}
@@ -286,3 +310,44 @@ func InfoToProto(in supervisor.Info) *psychoscopev1.ModuloInfo {
 }
 
 var errBadRequest = fmt.Errorf("ctl: requisicao malformada")
+
+// listAlerts atende PedidoListarAlertas: do banco quando ha, senao do historico em memoria.
+func (c *clientConn) listAlerts(id string, p *psychoscopev1.PedidoListarAlertas) *psychoscopev1.RespostaControle {
+	f := store.Filter{
+		Limit: int(min(p.Limite, store.MaxLimit)), MinSeverity: p.SeveridadeMinima,
+		Rule: p.Regra, Module: p.IdModulo,
+	}
+	if p.Desde != nil {
+		f.Since = p.Desde.AsTime()
+	}
+	lista := &psychoscopev1.ListaAlertas{}
+	if c.srv.cfg.Store != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		as, total, err := c.srv.cfg.Store.Query(ctx, f)
+		if err != nil {
+			c.srv.log.Error("ctl: consulta de alertas", "err", err)
+			return fail(id, "erro ao consultar o armazenamento de alertas")
+		}
+		lista.Alertas, lista.Total = as, total
+	} else {
+		recent := c.srv.cfg.Alerts.Recent() // do mais antigo ao mais novo
+		limit := f.Limit
+		if limit <= 0 {
+			limit = store.DefaultLimit
+		}
+		for i := len(recent) - 1; i >= 0; i-- {
+			if !f.Match(recent[i]) {
+				continue
+			}
+			lista.Total++
+			if len(lista.Alertas) < limit {
+				lista.Alertas = append(lista.Alertas, recent[i])
+			}
+		}
+	}
+	return &psychoscopev1.RespostaControle{
+		IdRequisicaoReferencia: id, Sucesso: true,
+		Resultado: &psychoscopev1.RespostaControle_Alertas{Alertas: lista},
+	}
+}

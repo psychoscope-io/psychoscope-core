@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,6 +43,20 @@ type ModuleSpec struct {
 	StopGrace      time.Duration // espera por saida apos ENCERRAR antes de SIGTERM/SIGKILL
 }
 
+// Storage configura a persistencia de alertas (SQLite).
+type Storage struct {
+	Enabled       bool
+	Path          string
+	RetentionDays int // 0 = nao remove por idade
+	MaxAlerts     int // 0 = sem teto
+}
+
+// Metrics configura o endpoint opcional de metricas (formato Prometheus).
+type Metrics struct {
+	Listen           string // "" = desligado; ex.: 127.0.0.1:9464
+	AllowNonLoopback bool
+}
+
 // Detection configura a janela deslizante, a fila do motor e os limiares das regras.
 type Detection struct {
 	Window    time.Duration
@@ -62,6 +77,8 @@ type Config struct {
 	LogLevel       string
 	Modules        []ModuleSpec
 	Detection      Detection
+	Storage        Storage
+	Metrics        Metrics
 }
 
 type fileModule struct {
@@ -99,6 +116,18 @@ type fileTunnel struct {
 	Cooldown     string   `json:"cooldown"`
 }
 
+type fileStorage struct {
+	Enabled       *bool  `json:"enabled"`
+	Path          string `json:"path"`
+	RetentionDays *int   `json:"retention_days"`
+	MaxAlerts     *int   `json:"max_alerts"`
+}
+
+type fileMetrics struct {
+	Listen           string `json:"listen"`
+	AllowNonLoopback bool   `json:"allow_non_loopback"`
+}
+
 type fileDetection struct {
 	Window    string     `json:"window"`
 	MaxEvents int        `json:"max_events"`
@@ -120,6 +149,8 @@ type fileConfig struct {
 	LogLevel       string        `json:"log_level"`
 	Modules        []fileModule  `json:"modules"`
 	Detection      fileDetection `json:"detection"`
+	Storage        fileStorage   `json:"storage"`
+	Metrics        fileMetrics   `json:"metrics"`
 }
 
 // Env abstrai o ambiente para tornar Load testavel.
@@ -230,11 +261,43 @@ func Load(args []string, e Env) (*Config, error) {
 		c.Modules = append(c.Modules, m)
 	}
 
+	c.Storage = Storage{Enabled: true, Path: filepath.Join(DefaultStateDir(e), "alerts.db"), RetentionDays: 30, MaxAlerts: 100_000}
+	if fc.Storage.Enabled != nil {
+		c.Storage.Enabled = *fc.Storage.Enabled
+	}
+	if fc.Storage.Path != "" {
+		c.Storage.Path = fc.Storage.Path
+	}
+	if fc.Storage.RetentionDays != nil {
+		c.Storage.RetentionDays = *fc.Storage.RetentionDays
+	}
+	if fc.Storage.MaxAlerts != nil {
+		c.Storage.MaxAlerts = *fc.Storage.MaxAlerts
+	}
+	c.Metrics = Metrics{Listen: fc.Metrics.Listen, AllowNonLoopback: fc.Metrics.AllowNonLoopback}
+
 	if c.Detection, err = loadDetection(fc.Detection); err != nil {
 		return nil, err
 	}
 
 	return c, c.Validate()
+}
+
+// DefaultStateDir escolhe o diretorio de dados persistentes: /var/lib/psychoscope quando
+// root ou quando ja existe e e gravavel (ex.: StateDirectory= do systemd); senao
+// $XDG_STATE_HOME/psychoscope ou ~/.local/state/psychoscope; senao /var/lib/psychoscope.
+func DefaultStateDir(e Env) string {
+	const system = "/var/lib/psychoscope"
+	if e.Euid == 0 || e.DirUsable(system) {
+		return system
+	}
+	if x := e.Getenv("XDG_STATE_HOME"); x != "" {
+		return filepath.Join(x, "psychoscope")
+	}
+	if h := e.Getenv("HOME"); h != "" {
+		return filepath.Join(h, ".local", "state", "psychoscope")
+	}
+	return system
 }
 
 // DefaultDetection devolve a configuracao padrao do motor de deteccao.
@@ -300,6 +363,21 @@ func (c *Config) Validate() error {
 	if c.StatusInterval <= 0 || c.CommandTimeout <= 0 {
 		return errors.New("status_interval e command_timeout devem ser positivos")
 	}
+	if c.Storage.Enabled && c.Storage.Path == "" {
+		return errors.New("storage.path e obrigatorio quando storage.enabled")
+	}
+	if c.Storage.RetentionDays < 0 || c.Storage.MaxAlerts < 0 {
+		return errors.New("storage.retention_days e storage.max_alerts nao podem ser negativos")
+	}
+	if c.Metrics.Listen != "" {
+		host, port, err := net.SplitHostPort(c.Metrics.Listen)
+		if err != nil || port == "" {
+			return fmt.Errorf("metrics.listen invalido %q (use host:porta)", c.Metrics.Listen)
+		}
+		if !c.Metrics.AllowNonLoopback && !isLoopbackHost(host) {
+			return fmt.Errorf("metrics.listen %q nao e loopback; o endpoint nao tem autenticacao (defina metrics.allow_non_loopback para permitir)", c.Metrics.Listen)
+		}
+	}
 	if c.Detection.MaxEvents <= 0 || c.Detection.QueueSize <= 0 {
 		return errors.New("detection.max_events e detection.queue_size devem ser positivos")
 	}
@@ -354,3 +432,14 @@ func firstNonEmpty(vs ...string) string {
 
 // ValidModuleID informa se id e um identificador de modulo aceitavel.
 func ValidModuleID(id string) bool { return moduleIDRe.MatchString(id) }
+
+func isLoopbackHost(h string) bool {
+	if h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
+// StorageRetention devolve a retencao como duracao (0 = sem limite por idade).
+func (s Storage) Retention() time.Duration { return time.Duration(s.RetentionDays) * 24 * time.Hour }

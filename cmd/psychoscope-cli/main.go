@@ -3,12 +3,15 @@
 //	psychoscope-cli [--ctl-socket S]                       TUI interativa (terminal)
 //	psychoscope-cli [--ctl-socket S] list                  tabela de modulos
 //	psychoscope-cli [--ctl-socket S] cmd <modulo> pause|resume|reconfigure|stop [chave=valor ...]
-//	psychoscope-cli [--ctl-socket S] alerts [--no-history] stream de alertas (Ctrl+C sai)
+//	psychoscope-cli [--ctl-socket S] alerts [--no-history] stream de alertas ao vivo (Ctrl+C sai)
+//	psychoscope-cli [--ctl-socket S] alerts --history ...  consulta o historico persistido
+//	psychoscope-cli [--ctl-socket S] metrics               metricas do Core
 package main
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -18,6 +21,7 @@ import (
 	"github.com/psychoscope-io/psychoscope-core/internal/config"
 	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
 	"github.com/psychoscope-io/psychoscope-core/internal/tui"
+	"github.com/psychoscope-io/psychoscope-core/internal/version"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 	"golang.org/x/term"
 )
@@ -26,7 +30,11 @@ const usage = `uso: psychoscope-cli [--ctl-socket S] [comando]
   (sem comando)                       abre a TUI interativa
   list                                lista os modulos
   cmd <modulo> pause|resume|reconfigure|stop [k=v ...]
-  alerts [--no-history]               acompanha os alertas`
+  alerts [--no-history]               acompanha os alertas ao vivo
+  alerts --history [-n 50] [--since 1h] [--min-severity alta] [--rule R] [--module M]
+                                      consulta o historico persistido
+  metrics                             metricas do Core
+  --version                           versao`
 
 var actions = map[string]psychoscopev1.ComandoControle_TipoAcao{
 	"pause":       psychoscopev1.ComandoControle_PAUSAR,
@@ -43,20 +51,25 @@ func main() {
 	} else if len(args) >= 1 && strings.HasPrefix(args[0], "--ctl-socket=") {
 		sock, args = strings.TrimPrefix(args[0], "--ctl-socket="), args[1:]
 	}
-	if len(args) > 0 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
-		fmt.Println(usage)
-		return
+	if len(args) > 0 {
+		switch args[0] {
+		case "-h", "--help", "help":
+			fmt.Println(usage)
+			return
+		case "--version", "-version", "version":
+			fmt.Println("psychoscope-cli", version.Version)
+			return
+		}
 	}
-	if err := run(&ctl.Client{Path: sock}, args); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := run(ctx, &ctl.Client{Path: sock}, args, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, "psychoscope-cli:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cl *ctl.Client, args []string) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
-
+func run(ctx context.Context, cl *ctl.Client, args []string, out io.Writer) error {
 	if len(args) == 0 {
 		if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
 			return fmt.Errorf("a TUI requer um terminal interativo\n%s", usage)
@@ -66,68 +79,57 @@ func run(cl *ctl.Client, args []string) error {
 
 	switch args[0] {
 	case "list":
-		mods, err := cl.List(ctx)
-		if err != nil {
-			return err
-		}
-		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "MODULO\tESTADO\tPID\tREINICIOS\tEVENTOS\tPACOTES\tDESCARTES\tULTIMO CONTATO\tERRO")
-		for _, m := range mods {
-			contato := "-"
-			if m.UltimoContato != nil {
-				contato = m.UltimoContato.AsTime().Local().Format(time.TimeOnly)
-			}
-			st := m.UltimoStatus
-			fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", m.IdModulo, strings.TrimPrefix(m.Estado.String(), "ESTADO_"), m.Pid, m.Reinicios,
-				st.GetEventosProcessados(), st.GetPacotesCapturados(), st.GetPacotesDescartados(), contato, m.UltimoErro)
-		}
-		return tw.Flush()
-
+		return cmdList(ctx, cl, out)
 	case "cmd":
-		if len(args) < 3 {
-			return fmt.Errorf("uso: cmd <modulo> pause|resume|reconfigure|stop [k=v ...]")
-		}
-		acao, ok := actions[args[2]]
-		if !ok {
-			return fmt.Errorf("acao desconhecida %q", args[2])
-		}
-		params := map[string]string{}
-		for _, kv := range args[3:] {
-			k, v, found := strings.Cut(kv, "=")
-			if !found {
-				return fmt.Errorf("parametro %q deve ser chave=valor", kv)
-			}
-			params[k] = v
-		}
-		if err := cl.Command(ctx, args[1], acao, params); err != nil {
-			return err
-		}
-		fmt.Println("ok")
-		return nil
-
+		return cmdCommand(ctx, cl, args[1:], out)
 	case "alerts":
-		history := !(len(args) > 1 && args[1] == "--no-history")
-		st, err := cl.StreamAlerts(ctx, history)
-		if err != nil {
-			return err
-		}
-		defer st.Close()
-		for a := range st.C {
-			ts := "--:--:--"
-			if a.Timestamp != nil {
-				ts = a.Timestamp.AsTime().Local().Format(time.TimeOnly)
-			}
-			fmt.Printf("%s [%s] %s: %s\n", ts, strings.TrimPrefix(a.Severidade.String(), "SEVERIDADE_"), a.Regra, a.Descricao)
-		}
-		if ctx.Err() != nil {
-			return nil
-		}
-		if err := st.Err(); err != nil {
-			return fmt.Errorf("stream encerrado: %w", err)
-		}
-		return nil
+		return cmdAlerts(ctx, cl, args[1:], out)
+	case "metrics":
+		return cmdMetrics(ctx, cl, out)
 	}
 	return fmt.Errorf("subcomando desconhecido %q\n%s", args[0], usage)
+}
+
+func cmdList(ctx context.Context, cl *ctl.Client, out io.Writer) error {
+	mods, err := cl.List(ctx)
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(tw, "MODULO\tESTADO\tPID\tREINICIOS\tEVENTOS\tPACOTES\tDESCARTES\tULTIMO CONTATO\tERRO")
+	for _, m := range mods {
+		contato := "-"
+		if m.UltimoContato != nil {
+			contato = m.UltimoContato.AsTime().Local().Format(time.TimeOnly)
+		}
+		st := m.UltimoStatus
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t%d\t%d\t%d\t%s\t%s\n", m.IdModulo, strings.TrimPrefix(m.Estado.String(), "ESTADO_"), m.Pid, m.Reinicios,
+			st.GetEventosProcessados(), st.GetPacotesCapturados(), st.GetPacotesDescartados(), contato, m.UltimoErro)
+	}
+	return tw.Flush()
+}
+
+func cmdCommand(ctx context.Context, cl *ctl.Client, args []string, out io.Writer) error {
+	if len(args) < 2 {
+		return fmt.Errorf("uso: cmd <modulo> pause|resume|reconfigure|stop [k=v ...]")
+	}
+	acao, ok := actions[args[1]]
+	if !ok {
+		return fmt.Errorf("acao desconhecida %q", args[1])
+	}
+	params := map[string]string{}
+	for _, kv := range args[2:] {
+		k, v, found := strings.Cut(kv, "=")
+		if !found {
+			return fmt.Errorf("parametro %q deve ser chave=valor", kv)
+		}
+		params[k] = v
+	}
+	if err := cl.Command(ctx, args[0], acao, params); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "ok")
+	return nil
 }
 
 func firstNonEmpty(vs ...string) string {

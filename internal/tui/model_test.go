@@ -34,6 +34,8 @@ type fakeBackend struct {
 	cmdErr  error
 	cmds    []string
 	stream  *fakeStream
+	metrics []*psychoscopev1.Metrica
+	metErr  error
 }
 
 func (f *fakeBackend) List(context.Context) ([]*psychoscopev1.ModuloInfo, error) {
@@ -47,6 +49,12 @@ func (f *fakeBackend) Command(_ context.Context, mod string, a psychoscopev1.Com
 	defer f.mu.Unlock()
 	f.cmds = append(f.cmds, mod+":"+a.String())
 	return f.cmdErr
+}
+
+func (f *fakeBackend) Metrics(context.Context) ([]*psychoscopev1.Metrica, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.metrics, f.metErr
 }
 
 func (f *fakeBackend) StreamAlerts(context.Context) (Stream, error) {
@@ -363,5 +371,58 @@ func TestViewFitsEveryTerminalSize(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func metric(name string, v float64) *psychoscopev1.Metrica {
+	return &psychoscopev1.Metrica{Nome: name, Valor: v}
+}
+
+func TestMetricsLineRatesAndResets(t *testing.T) {
+	be := &fakeBackend{}
+	m := NewModel(be)
+	at := time.Unix(1_700_000_000, 0)
+	snap := func(ev, drop, alerts float64) []*psychoscopev1.Metrica {
+		return []*psychoscopev1.Metrica{
+			metric("psychoscope_engine_events_processed_total", ev),
+			metric("psychoscope_engine_events_dropped_total", drop),
+			{Nome: "psychoscope_module_packets_dropped_total", Valor: 4, Rotulos: map[string]string{"module": "a"}},
+			{Nome: "psychoscope_module_packets_dropped_total", Valor: 6, Rotulos: map[string]string{"module": "b"}},
+			metric("psychoscope_engine_alerts_total", alerts),
+		}
+	}
+	if strings.Contains(plain(m), "ev/s") {
+		t.Fatal("sem metricas nao deve exibir a linha")
+	}
+	m.Update(metricsMsg{ms: snap(100, 1, 2), at: at})
+	if !strings.Contains(plain(m), "0 ev/s") || !strings.Contains(plain(m), "11 descartes") || !strings.Contains(plain(m), "2 alertas") {
+		t.Fatalf("primeira amostra (sem taxa):\n%s", plain(m))
+	}
+	m.Update(metricsMsg{ms: snap(400, 1, 3), at: at.Add(2 * time.Second)})
+	if !strings.Contains(plain(m), "150 ev/s") || !strings.Contains(plain(m), "3 alertas") {
+		t.Fatalf("taxa = delta/dt:\n%s", plain(m))
+	}
+	m.Update(metricsMsg{ms: snap(10, 0, 0), at: at.Add(4 * time.Second)}) // Core reiniciou
+	if !strings.Contains(plain(m), " 0 ev/s") {
+		t.Fatalf("contador que diminuiu nao gera taxa negativa:\n%s", plain(m))
+	}
+	m.Update(metricsMsg{err: errors.New("fora do ar")})
+	if strings.Contains(plain(m), "ev/s") {
+		t.Fatal("erro de metricas esconde a linha")
+	}
+}
+
+func TestMetricsFetchedOnInitAndTick(t *testing.T) {
+	be := &fakeBackend{metrics: []*psychoscopev1.Metrica{metric("psychoscope_engine_alerts_total", 5)}}
+	m := NewModel(be)
+	var sawMetrics bool
+	for _, msg := range exec(m.fetchMetrics()) {
+		if mm, ok := msg.(metricsMsg); ok && mm.err == nil && len(mm.ms) == 1 {
+			sawMetrics = true
+			m.Update(mm)
+		}
+	}
+	if !sawMetrics || !strings.Contains(plain(m), "5 alertas") {
+		t.Fatalf("metricas via backend:\n%s", plain(m))
 	}
 }

@@ -42,6 +42,11 @@ type (
 		s   Stream
 		err error
 	}
+	metricsMsg struct {
+		ms  []*psychoscopev1.Metrica
+		err error
+		at  time.Time
+	}
 	alertMsg        struct{ a *psychoscopev1.Alerta }
 	streamClosedMsg struct{ err error }
 	reopenMsg       struct{}
@@ -78,6 +83,14 @@ type Model struct {
 	status    string
 	statusErr bool
 	statusSeq int
+
+	// metricas do Core (taxa calculada entre duas consultas)
+	haveMetrics bool
+	prevEvents  float64
+	prevAt      time.Time
+	evRate      float64
+	alertsTotal float64
+	dropped     float64
 }
 
 // NewModel cria a TUI sobre b.
@@ -92,6 +105,16 @@ func (m *Model) fetchModules() tea.Cmd {
 		defer cancel()
 		mods, err := be.List(ctx)
 		return modulesMsg{mods, err}
+	}
+}
+
+func (m *Model) fetchMetrics() tea.Cmd {
+	be := m.be
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		ms, err := be.Metrics(ctx)
+		return metricsMsg{ms, err, time.Now()}
 	}
 }
 
@@ -139,7 +162,7 @@ func (m *Model) setStatus(text string, isErr bool) tea.Cmd {
 // ---- tea.Model ----
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(m.fetchModules(), m.openStream(), m.tick())
+	return tea.Batch(m.fetchModules(), m.fetchMetrics(), m.openStream(), m.tick())
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -148,7 +171,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 
 	case tickMsg:
-		return m, tea.Batch(m.fetchModules(), m.tick())
+		return m, tea.Batch(m.fetchModules(), m.fetchMetrics(), m.tick())
 
 	case modulesMsg:
 		m.modsErr = msg.err
@@ -157,6 +180,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			sort.SliceStable(m.mods, func(i, j int) bool { return m.mods[i].IdModulo < m.mods[j].IdModulo })
 			m.selected = clamp(m.selected, 0, len(m.mods)-1)
 		}
+
+	case metricsMsg:
+		if msg.err != nil {
+			m.haveMetrics = false
+			break
+		}
+		m.applyMetrics(msg.ms, msg.at)
 
 	case streamOpenedMsg:
 		if msg.err != nil {
@@ -205,6 +235,30 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onKey(msg)
 	}
 	return m, nil
+}
+
+// applyMetrics extrai do instantaneo os numeros do cabecalho; a taxa de eventos/s vem
+// do delta do contador entre duas consultas (contador que diminuiu = Core reiniciou).
+func (m *Model) applyMetrics(ms []*psychoscopev1.Metrica, at time.Time) {
+	var events, dropped, alerts float64
+	for _, x := range ms {
+		switch x.Nome {
+		case "psychoscope_engine_events_processed_total":
+			events = x.Valor
+		case "psychoscope_engine_events_dropped_total", "psychoscope_module_packets_dropped_total":
+			dropped += x.Valor
+		case "psychoscope_engine_alerts_total":
+			alerts = x.Valor
+		}
+	}
+	m.evRate = 0
+	if m.haveMetrics && events >= m.prevEvents {
+		if dt := at.Sub(m.prevAt).Seconds(); dt > 0 {
+			m.evRate = (events - m.prevEvents) / dt
+		}
+	}
+	m.haveMetrics, m.prevEvents, m.prevAt = true, events, at
+	m.dropped, m.alertsTotal = dropped, alerts
 }
 
 func (m *Model) selectedModule() *psychoscopev1.ModuloInfo {
@@ -346,7 +400,11 @@ func (m *Model) View() string {
 	if m.streamOK {
 		stream = dimStyle.Render("alertas: ao vivo")
 	}
-	header := fit(titleStyle.Render("PSYCHOSCOPE")+dimStyle.Render(" MODR  ")+conn+dimStyle.Render("  ·  ")+stream, w)
+	line := titleStyle.Render("PSYCHOSCOPE") + dimStyle.Render(" MODR  ") + conn + dimStyle.Render("  ·  ") + stream
+	if m.haveMetrics {
+		line += dimStyle.Render(fmt.Sprintf("  ·  %.0f ev/s · %.0f alertas · %.0f descartes", m.evRate, m.alertsTotal, m.dropped))
+	}
+	header := fit(line, w)
 
 	footer := m.footer(w)
 	bodyH := h - 2 // cabecalho + rodape

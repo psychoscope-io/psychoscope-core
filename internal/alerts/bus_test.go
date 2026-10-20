@@ -95,3 +95,24 @@ func TestHistoryRingAndReplay(t *testing.T) {
 		t.Fatal("sem historico")
 	}
 }
+
+func TestSeedFillsEmptyHistoryOnly(t *testing.T) {
+	b := NewBusWithHistory(3)
+	var past []*psychoscopev1.Alerta
+	for _, id := range []string{"1", "2", "3", "4", "5"} {
+		past = append(past, &psychoscopev1.Alerta{IdAlerta: id})
+	}
+	b.Seed(past)
+	if rec := b.Recent(); len(rec) != 3 || rec[0].IdAlerta != "3" || rec[2].IdAlerta != "5" {
+		t.Fatalf("seed deve reter os mais recentes: %v", rec)
+	}
+	b.Seed([]*psychoscopev1.Alerta{{IdAlerta: "x"}})
+	if rec := b.Recent(); len(rec) != 3 || rec[2].IdAlerta != "5" {
+		t.Fatal("Seed nao pode sobrescrever historico existente")
+	}
+	b.Publish(&psychoscopev1.Alerta{IdAlerta: "6"})
+	if rec := b.Recent(); rec[2].IdAlerta != "6" || rec[0].IdAlerta != "4" {
+		t.Fatalf("publicar apos seed: %v", rec)
+	}
+	NewBusWithHistory(0).Seed(past) // sem historico: ignora sem panico
+}

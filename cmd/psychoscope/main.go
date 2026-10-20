@@ -11,9 +11,14 @@ import (
 
 	"github.com/psychoscope-io/psychoscope-core/internal/app"
 	"github.com/psychoscope-io/psychoscope-core/internal/config"
+	"github.com/psychoscope-io/psychoscope-core/internal/version"
 )
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-version" || os.Args[1] == "version") {
+		fmt.Println("psychoscope", version.Version)
+		return
+	}
 	cfg, err := config.Load(os.Args[1:], config.OSEnv())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "psychoscope:", err)
