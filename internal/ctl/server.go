@@ -222,58 +222,68 @@ func (c *clientConn) dispatch(req *psychoscopev1.RequisicaoControle) error {
 	id := req.IdRequisicao
 	switch p := req.Pedido.(type) {
 	case *psychoscopev1.RequisicaoControle_ListarModulos:
-		infos := c.srv.cfg.Backend.List()
-		lista := &psychoscopev1.ListaModulos{}
-		for _, in := range infos {
-			lista.Modulos = append(lista.Modulos, InfoToProto(in))
-		}
-		return c.send(&psychoscopev1.RespostaControle{
-			IdRequisicaoReferencia: id, Sucesso: true,
-			Resultado: &psychoscopev1.RespostaControle_Modulos{Modulos: lista},
-		})
-
+		return c.send(c.listModules(id))
 	case *psychoscopev1.RequisicaoControle_EnviarComando:
-		e := p.EnviarComando
-		if e.IdModulo == "" || e.Acao == psychoscopev1.ComandoControle_ACAO_DESCONHECIDA {
-			return c.send(fail(id, "id_modulo e acao sao obrigatorios"))
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), c.srv.cfg.CommandTimeout)
-		defer cancel()
-		if err := c.srv.cfg.Backend.Command(ctx, e.IdModulo, e.Acao, e.Parametros); err != nil {
-			return c.send(fail(id, err.Error()))
-		}
-		return c.send(&psychoscopev1.RespostaControle{IdRequisicaoReferencia: id, Sucesso: true})
-
+		return c.send(c.sendCommand(id, p.EnviarComando))
 	case *psychoscopev1.RequisicaoControle_AssinarAlertas:
-		if c.sub != nil {
-			return c.send(fail(id, "assinatura de alertas ja ativa nesta conexao"))
-		}
-		if p.AssinarAlertas.GetIncluirHistorico() {
-			c.sub = c.srv.cfg.Alerts.SubscribeWithHistory(256)
-		} else {
-			c.sub = c.srv.cfg.Alerts.Subscribe(256)
-		}
-		if err := c.send(&psychoscopev1.RespostaControle{IdRequisicaoReferencia: id, Sucesso: true}); err != nil {
-			return err
-		}
-		go c.forwardAlerts(id, c.sub)
-		return nil
-
+		return c.subscribe(id, p.AssinarAlertas)
 	case *psychoscopev1.RequisicaoControle_ListarAlertas:
 		return c.send(c.listAlerts(id, p.ListarAlertas))
-
 	case *psychoscopev1.RequisicaoControle_Metricas:
-		lista := &psychoscopev1.ListaMetricas{}
-		if c.srv.cfg.Metrics != nil {
-			lista.Metricas = c.srv.cfg.Metrics()
-		}
-		return c.send(&psychoscopev1.RespostaControle{
-			IdRequisicaoReferencia: id, Sucesso: true,
-			Resultado: &psychoscopev1.RespostaControle_Metricas{Metricas: lista},
-		})
-
+		return c.send(c.metrics(id))
 	default:
 		return c.send(fail(id, "pedido vazio ou desconhecido"))
+	}
+}
+
+func (c *clientConn) listModules(id string) *psychoscopev1.RespostaControle {
+	lista := &psychoscopev1.ListaModulos{}
+	for _, in := range c.srv.cfg.Backend.List() {
+		lista.Modulos = append(lista.Modulos, InfoToProto(in))
+	}
+	return &psychoscopev1.RespostaControle{
+		IdRequisicaoReferencia: id, Sucesso: true,
+		Resultado: &psychoscopev1.RespostaControle_Modulos{Modulos: lista},
+	}
+}
+
+func (c *clientConn) sendCommand(id string, e *psychoscopev1.PedidoEnviarComando) *psychoscopev1.RespostaControle {
+	if e.IdModulo == "" || e.Acao == psychoscopev1.ComandoControle_ACAO_DESCONHECIDA {
+		return fail(id, "id_modulo e acao sao obrigatorios")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), c.srv.cfg.CommandTimeout)
+	defer cancel()
+	if err := c.srv.cfg.Backend.Command(ctx, e.IdModulo, e.Acao, e.Parametros); err != nil {
+		return fail(id, err.Error())
+	}
+	return &psychoscopev1.RespostaControle{IdRequisicaoReferencia: id, Sucesso: true}
+}
+
+// subscribe confirma a assinatura e passa a encaminhar alertas na mesma conexao.
+func (c *clientConn) subscribe(id string, p *psychoscopev1.PedidoAssinarAlertas) error {
+	if c.sub != nil {
+		return c.send(fail(id, "assinatura de alertas ja ativa nesta conexao"))
+	}
+	if p.GetIncluirHistorico() {
+		c.sub = c.srv.cfg.Alerts.SubscribeWithHistory(256)
+	} else {
+		c.sub = c.srv.cfg.Alerts.Subscribe(256)
+	}
+	if err := c.send(&psychoscopev1.RespostaControle{IdRequisicaoReferencia: id, Sucesso: true}); err != nil {
+		return err
+	}
+	go c.forwardAlerts(id, c.sub)
+	return nil
+}
+
+func (c *clientConn) metrics(id string) *psychoscopev1.RespostaControle {
+	lista := &psychoscopev1.ListaMetricas{}
+	if c.srv.cfg.Metrics != nil {
+		lista.Metricas = c.srv.cfg.Metrics()
+	}
+	return &psychoscopev1.RespostaControle{
+		IdRequisicaoReferencia: id, Sucesso: true,
+		Resultado: &psychoscopev1.RespostaControle_Metricas{Metricas: lista},
 	}
 }
 
