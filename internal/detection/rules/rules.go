@@ -151,6 +151,17 @@ func (c Config) Validate() error {
 			return fmt.Errorf("regra desconhecida em disabled: %q (validas: %v)", d, AllNames())
 		}
 	}
+	if err := c.validatePositive(); err != nil {
+		return err
+	}
+	if err := c.Beacon.validate(); err != nil {
+		return err
+	}
+	return c.BruteForce.validate()
+}
+
+// validatePositive exige limiares, janelas e cooldowns positivos em todas as regras.
+func (c Config) validatePositive() error {
 	pos := map[string]bool{
 		"scan.window": c.Scan.Window > 0, "scan.vertical_ports": c.Scan.VerticalPorts > 0,
 		"scan.horizontal_hosts": c.Scan.HorizontalHosts > 0, "scan.cooldown": c.Scan.Cooldown > 0, "scan.max_scan": c.Scan.MaxScan > 0,
@@ -170,7 +181,10 @@ func (c Config) Validate() error {
 			return fmt.Errorf("detection.%s deve ser positivo", k)
 		}
 	}
-	b := c.Beacon
+	return nil
+}
+
+func (b BeaconConfig) validate() error {
 	switch {
 	case b.MinSamples < 4 || b.MinSamples > maxSeriesLen:
 		return fmt.Errorf("detection.beacon.min_samples deve estar entre 4 e %d", maxSeriesLen)
@@ -186,15 +200,19 @@ func (c Config) Validate() error {
 			return fmt.Errorf("detection.beacon.ignore_ports: porta invalida %d", p)
 		}
 	}
-	if len(c.BruteForce.Ports) == 0 {
+	return nil
+}
+
+func (b BruteForceConfig) validate() error {
+	if len(b.Ports) == 0 {
 		return fmt.Errorf("detection.bruteforce.ports nao pode ser vazio (desabilite a regra em disabled)")
 	}
-	for _, p := range c.BruteForce.Ports {
+	for _, p := range b.Ports {
 		if p < 1 || p > 65535 {
 			return fmt.Errorf("detection.bruteforce.ports: porta invalida %d", p)
 		}
 	}
-	if _, err := parseSources(c.BruteForce.IgnoreSources); err != nil {
+	if _, err := parseSources(b.IgnoreSources); err != nil {
 		return fmt.Errorf("detection.bruteforce.ignore_sources: %w", err)
 	}
 	return nil

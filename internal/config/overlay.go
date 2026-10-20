@@ -20,15 +20,7 @@ func overlayStruct(raw json.RawMessage, dst any, path string) error {
 		return fmt.Errorf("%s: destino invalido", path)
 	}
 	v = v.Elem()
-	t := v.Type()
-
-	fields := map[string]int{}
-	for i := 0; i < t.NumField(); i++ {
-		tag := strings.Split(t.Field(i).Tag.Get("json"), ",")[0]
-		if tag != "" && tag != "-" {
-			fields[tag] = i
-		}
-	}
+	fields := jsonFields(v.Type())
 
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
@@ -38,33 +30,52 @@ func overlayStruct(raw json.RawMessage, dst any, path string) error {
 	for k := range obj {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	sort.Strings(keys) // erros deterministicos
 	for _, k := range keys {
 		idx, ok := fields[k]
 		if !ok {
-			valid := make([]string, 0, len(fields))
-			for name := range fields {
-				valid = append(valid, name)
-			}
-			sort.Strings(valid)
-			return fmt.Errorf("%s: campo desconhecido %q (validos: %s)", path, k, strings.Join(valid, ", "))
+			return fmt.Errorf("%s: campo desconhecido %q (validos: %s)", path, k, strings.Join(sortedKeys(fields), ", "))
 		}
-		f := v.Field(idx)
-		if f.Type() == durationType {
-			var s string
-			if err := json.Unmarshal(obj[k], &s); err != nil {
-				return fmt.Errorf("%s.%s: esperado texto de duracao (ex.: \"10s\")", path, k)
-			}
-			d, err := time.ParseDuration(s)
-			if err != nil {
-				return fmt.Errorf("%s.%s: duracao invalida %q: %w", path, k, s, err)
-			}
-			f.SetInt(int64(d))
-			continue
-		}
-		if err := json.Unmarshal(obj[k], f.Addr().Interface()); err != nil {
+		if err := setField(v.Field(idx), obj[k]); err != nil {
 			return fmt.Errorf("%s.%s: %w", path, k, err)
 		}
 	}
+	return nil
+}
+
+// jsonFields mapeia o nome da tag json de cada campo exportado para o seu indice.
+func jsonFields(t reflect.Type) map[string]int {
+	fields := map[string]int{}
+	for i := 0; i < t.NumField(); i++ {
+		if tag := strings.Split(t.Field(i).Tag.Get("json"), ",")[0]; tag != "" && tag != "-" {
+			fields[tag] = i
+		}
+	}
+	return fields
+}
+
+func sortedKeys(m map[string]int) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// setField decodifica raw no campo f; time.Duration vem como texto ("10s").
+func setField(f reflect.Value, raw json.RawMessage) error {
+	if f.Type() != durationType {
+		return json.Unmarshal(raw, f.Addr().Interface())
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return fmt.Errorf("esperado texto de duracao (ex.: \"10s\")")
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("duracao invalida %q: %w", s, err)
+	}
+	f.SetInt(int64(d))
 	return nil
 }
