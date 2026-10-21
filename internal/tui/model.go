@@ -26,6 +26,7 @@ type Model struct {
 
 	focus   focus
 	cmdline *cmdline // linha de comando (:) aberta, ou nil
+	detail  *detail  // detalhe de alerta aberto, ou nil
 
 	status    string
 	statusErr bool
@@ -171,7 +172,7 @@ func (m *Model) selectedModule() *psychoscopev1.ModuloInfo {
 	return m.mods[m.selected]
 }
 
-// onKey despacha a tecla para o modo atual: linha de comando aberta ou tela principal.
+// onKey despacha a tecla para o modo atual: linha de comando, detalhe de alerta ou tela principal.
 // O terminal entrega uma rajada de caracteres (digitacao rapida, tecla mantida) como uma
 // unica tecla com varias runas; cada runa e tratada como a sua propria tecla. Texto colado
 // (Paste) so e aceito na linha de comando.
@@ -186,6 +187,9 @@ func (m *Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.cmdline != nil {
 		return m.onKeyCmdline(k)
+	}
+	if m.detail != nil {
+		return m.onKeyDetail(k)
 	}
 	if k.Paste {
 		return m, nil
@@ -204,6 +208,10 @@ func (m *Model) onKeyMain(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.setStatus(hintStop, false)
 	case "tab":
 		m.focus = (m.focus + 1) % 2
+	case "enter":
+		if m.focus == focusAlerts && len(m.alerts) > 0 {
+			m.detail = &detail{a: m.alerts[m.alertSel]}
+		}
 	case "up", "k":
 		m.move(-1)
 	case "down", "j":

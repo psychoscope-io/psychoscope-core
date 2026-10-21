@@ -88,6 +88,9 @@ func (m *Model) View() string {
 
 	footer := m.footer(w)
 	bodyH := h - 2 // cabecalho + rodape
+	if m.detail != nil {
+		return strings.Join([]string{header, m.detailPanel(w, bodyH), footer}, "\n")
+	}
 	modsH := min(len(m.mods)+4, max(bodyH*2/5, 5))
 	alertsH := bodyH - modsH
 
@@ -105,6 +108,8 @@ func (m *Model) footer(w int) string {
 			st = errStyle
 		}
 		return fit(st.Render(m.status), w)
+	case m.detail != nil:
+		return fit(dimStyle.Render("↑/↓ rolar · PgUp/PgDn página · g/G início/fim · Esc, Enter ou q fecham"), w)
 	}
-	return fit(dimStyle.Render("↑/↓ selecionar · tab foco · p pausar · r retomar · : comandos (:q sair, :stop encerrar)"), w)
+	return fit(dimStyle.Render("↑/↓ selecionar · tab foco · Enter detalhes · p pausar · r retomar · :q sair · :stop encerrar"), w)
 }
