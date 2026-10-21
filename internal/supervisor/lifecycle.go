@@ -22,23 +22,23 @@ func nextBackoff(cur, max time.Duration) time.Duration {
 	return max
 }
 
-func (m *managed) stopping(ctx context.Context) bool {
+func (c *cycle) stopping(ctx context.Context) bool {
 	if ctx.Err() != nil {
 		return true
 	}
 	select {
-	case <-m.stopCh:
+	case <-c.stopCh:
 		return true
 	default:
 		return false
 	}
 }
 
-func (s *Supervisor) runModule(ctx context.Context, m *managed) {
-	defer close(m.finished)
+func (s *Supervisor) runModule(ctx context.Context, m *managed, cy *cycle) {
+	defer close(cy.finished)
 	backoff := m.spec.MinBackoff
 	for {
-		if m.stopping(ctx) {
+		if cy.stopping(ctx) {
 			m.setState(psychoscopev1.EstadoModulo_ESTADO_ENCERRADO)
 			return
 		}
@@ -58,7 +58,7 @@ func (s *Supervisor) runModule(ctx context.Context, m *managed) {
 			exited := make(chan error, 1)
 			go func() { exited <- cmd.Wait() }()
 
-			stopped, werr := s.supervise(ctx, m, cmd, exited, started)
+			stopped, werr := s.supervise(ctx, m, cy, cmd, exited, started)
 			m.set(func() { m.pid = 0; m.sess = nil })
 			if stopped {
 				m.setState(psychoscopev1.EstadoModulo_ESTADO_ENCERRADO)
@@ -80,7 +80,7 @@ func (s *Supervisor) runModule(ctx context.Context, m *managed) {
 		select {
 		case <-t.C:
 		case <-ctx.Done():
-		case <-m.stopCh:
+		case <-cy.stopCh:
 		}
 		t.Stop()
 	}
@@ -102,7 +102,7 @@ func (s *Supervisor) buildCmd(sp config.ModuleSpec) *exec.Cmd {
 
 // supervise vigia o processo ate ele sair. stopped=true quando a saida foi
 // provocada por Stop/cancelamento (sem restart); caso contrario devolve o motivo.
-func (s *Supervisor) supervise(ctx context.Context, m *managed, cmd *exec.Cmd, exited <-chan error, started time.Time) (stopped bool, reason string) {
+func (s *Supervisor) supervise(ctx context.Context, m *managed, cy *cycle, cmd *exec.Cmd, exited <-chan error, started time.Time) (stopped bool, reason string) {
 	tick := time.NewTicker(watchdogTick)
 	defer tick.Stop()
 	killed := false
@@ -116,7 +116,7 @@ func (s *Supervisor) supervise(ctx context.Context, m *managed, cmd *exec.Cmd, e
 		case <-ctx.Done():
 			s.terminate(m, cmd, exited)
 			return true, ""
-		case <-m.stopCh:
+		case <-cy.stopCh:
 			s.terminate(m, cmd, exited)
 			return true, ""
 		case <-tick.C:

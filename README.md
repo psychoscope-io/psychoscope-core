@@ -38,7 +38,7 @@ Instalação como serviço (systemd, usuário dedicado, privilégios mínimos): 
   alerta (todos os campos, descrição e contexto com quebra de linha, `↑/↓`/`PgUp`/`PgDn` rolam, `Esc`/`Enter`/`q` fecham), `p` pausar,
   `r` retomar e `:` abrir a linha de comando. Sair e encerrar um módulo só existem como comandos, para não acontecerem por acidente:
   `:q` (ou `:quit`, `:sair`) + `Enter` sai, `:stop` + `Enter` encerra o módulo selecionado (o rodapé mostra o alvo enquanto você digita),
-  `:pause` e `:resume`; `Tab` completa o comando e `Esc` cancela. `q`, `Esc` e `Ctrl+C` na tela principal só mostram a dica.
+  `:pause` e `:resume` (`resume`/`r` também reinicia um módulo encerrado por `:stop`); `Tab` completa o comando e `Esc` cancela. `q`, `Esc` e `Ctrl+C` na tela principal só mostram a dica.
   Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `alerts [--no-history] [-v]` (ao vivo),
   `alerts --history [-n 50] [--since 2h] [--min-severity alta] [--rule R] [--module M] [-v]` (persistido; `-v` mostra o contexto
   `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `--version`.

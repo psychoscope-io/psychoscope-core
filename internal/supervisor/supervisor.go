@@ -29,6 +29,7 @@ import (
 var (
 	ErrUnknownModule = errors.New("supervisor: modulo desconhecido")
 	ErrNotConnected  = errors.New("supervisor: modulo sem sessao IPC ativa")
+	ErrStopped       = errors.New("supervisor: modulo encerrado; use resume para reinicia-lo")
 )
 
 // Variaveis (e nao constantes) para que os testes possam encurtar os prazos.
@@ -64,16 +65,43 @@ type Supervisor struct {
 	log   *slog.Logger
 	mods  map[string]*managed
 	order []string
+
+	// mu protege runCtx e closing e serializa o lancamento de goroutines de
+	// modulo, para que wg.Add nunca corra com wg.Wait (em Run).
+	mu      sync.Mutex
+	runCtx  context.Context // nil ate Run
+	closing bool            // Run saiu de <-ctx.Done: nada novo pode ser lancado
+	wg      sync.WaitGroup
+}
+
+// cycle e uma execucao da goroutine de um modulo (do lancamento ate Stop ou
+// cancelamento). Um modulo encerrado ganha um cycle novo ao ser reiniciado.
+type cycle struct {
+	stopOnce sync.Once
+	stopCh   chan struct{} // fechado por stop: sem novos restarts
+	finished chan struct{} // fechado quando a goroutine do modulo termina
+}
+
+func newCycle() *cycle {
+	return &cycle{stopCh: make(chan struct{}), finished: make(chan struct{})}
+}
+
+func (c *cycle) stop() { c.stopOnce.Do(func() { close(c.stopCh) }) }
+
+func (c *cycle) isFinished() bool {
+	select {
+	case <-c.finished:
+		return true
+	default:
+		return false
+	}
 }
 
 type managed struct {
 	spec config.ModuleSpec
 
-	stopOnce sync.Once
-	stopCh   chan struct{} // fechado por Stop: sem novos restarts
-	finished chan struct{} // fechado quando a goroutine do modulo termina
-
 	mu          sync.Mutex
+	cycle       *cycle
 	state       psychoscopev1.EstadoModulo
 	pid         int
 	restarts    uint32
@@ -93,7 +121,7 @@ func New(opt Options) *Supervisor {
 	s := &Supervisor{opt: opt, log: opt.Logger, mods: map[string]*managed{}}
 	for _, sp := range opt.Specs {
 		s.mods[sp.ID] = &managed{
-			spec: sp, stopCh: make(chan struct{}), finished: make(chan struct{}),
+			spec: sp, cycle: newCycle(),
 			state: psychoscopev1.EstadoModulo_ESTADO_DESCONHECIDO,
 		}
 		s.order = append(s.order, sp.ID)
@@ -105,17 +133,44 @@ func New(opt Options) *Supervisor {
 // sido encerrados graciosamente. Modulos parados individualmente via Stop nao
 // fazem Run retornar.
 func (s *Supervisor) Run(ctx context.Context) {
-	var wg sync.WaitGroup
+	s.mu.Lock()
+	s.runCtx = ctx
 	for _, id := range s.order {
 		m := s.mods[id]
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			s.runModule(ctx, m)
-		}()
+		s.launch(ctx, m, m.currentCycle())
 	}
+	s.mu.Unlock()
 	<-ctx.Done()
-	wg.Wait()
+	s.mu.Lock()
+	s.closing = true
+	s.mu.Unlock()
+	s.wg.Wait()
+}
+
+// launch inicia a goroutine do modulo para o ciclo cy. Exige s.mu.
+func (s *Supervisor) launch(ctx context.Context, m *managed, cy *cycle) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.runModule(ctx, m, cy)
+	}()
+}
+
+// restart relanca um modulo encerrado por Stop. Se o modulo ainda esta
+// rodando (mesmo sem sessao) devolve ErrNotConnected.
+func (s *Supervisor) restart(m *managed) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runCtx == nil || s.closing || s.runCtx.Err() != nil {
+		return errors.New("supervisor: nucleo nao esta em execucao; nao e possivel reiniciar o modulo")
+	}
+	if !m.currentCycle().isFinished() {
+		return ErrNotConnected
+	}
+	cy := newCycle()
+	m.set(func() { m.cycle = cy })
+	s.launch(s.runCtx, m, cy)
+	return nil
 }
 
 // Stop encerra o modulo id graciosamente e o impede de reiniciar.
@@ -124,9 +179,10 @@ func (s *Supervisor) Stop(ctx context.Context, id string) error {
 	if !ok {
 		return ErrUnknownModule
 	}
-	m.stopOnce.Do(func() { close(m.stopCh) })
+	cy := m.currentCycle()
+	cy.stop()
 	select {
-	case <-m.finished:
+	case <-cy.finished:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -135,6 +191,7 @@ func (s *Supervisor) Stop(ctx context.Context, id string) error {
 
 // Command executa uma acao de controle sobre o modulo id.
 // ENCERRAR e tratada pelo supervisor (inclui escalonamento de sinais);
+// RETOMAR de um modulo encerrado o relanca (o retorno nao espera a conexao);
 // as demais viram comandos IPC sincronos (ACK/NACK).
 func (s *Supervisor) Command(ctx context.Context, id string, acao psychoscopev1.ComandoControle_TipoAcao, params map[string]string) error {
 	m, ok := s.mods[id]
@@ -151,7 +208,13 @@ func (s *Supervisor) Command(ctx context.Context, id string, acao psychoscopev1.
 	sess := m.sess
 	m.mu.Unlock()
 	if sess == nil {
-		return ErrNotConnected
+		if !m.currentCycle().isFinished() {
+			return ErrNotConnected
+		}
+		if acao == psychoscopev1.ComandoControle_RETOMAR {
+			return s.restart(m)
+		}
+		return ErrStopped
 	}
 	if _, err := sess.Command(ctx, acao, params); err != nil {
 		return err
@@ -212,6 +275,12 @@ func (m *managed) set(f func()) {
 	m.mu.Lock()
 	f()
 	m.mu.Unlock()
+}
+
+func (m *managed) currentCycle() *cycle {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cycle
 }
 
 func (m *managed) setState(st psychoscopev1.EstadoModulo) { m.set(func() { m.state = st }) }

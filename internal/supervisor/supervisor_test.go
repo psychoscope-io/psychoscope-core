@@ -221,8 +221,13 @@ func TestCommandWithoutSession(t *testing.T) {
 	s := spec("mod-a", "PSY_NOCONNECT=1")
 	e := setup(t, false, s)
 	e.waitState(t, "mod-a", psychoscopev1.EstadoModulo_ESTADO_INICIANDO)
-	if err := e.sup.Command(context.Background(), "mod-a", psychoscopev1.ComandoControle_PAUSAR, nil); !errors.Is(err, ErrNotConnected) {
-		t.Fatalf("esperado ErrNotConnected, obtido %v", err)
+	for _, acao := range []psychoscopev1.ComandoControle_TipoAcao{psychoscopev1.ComandoControle_PAUSAR, psychoscopev1.ComandoControle_RETOMAR} {
+		if err := e.sup.Command(context.Background(), "mod-a", acao, nil); !errors.Is(err, ErrNotConnected) {
+			t.Fatalf("%v: esperado ErrNotConnected, obtido %v", acao, err)
+		}
+	}
+	if i, _ := e.sup.Get("mod-a"); i.Restarts != 0 {
+		t.Fatalf("RETOMAR de modulo vivo nao deve relancar: %+v", i)
 	}
 }
 
@@ -368,5 +373,95 @@ func TestChildEnvironmentIsMinimal(t *testing.T) {
 	}
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid {
 		t.Error("filho deve ter grupo de processos proprio")
+	}
+}
+
+func TestResumeRestartsStoppedModule(t *testing.T) {
+	e := setup(t, false, spec("mod-a"))
+	e.waitState(t, "mod-a", psychoscopev1.EstadoModulo_ESTADO_CONECTADO)
+	ctx := context.Background()
+	prev, _ := e.sup.Get("mod-a")
+
+	// parar -> retomar -> parar -> retomar: cada ciclo tem processo novo e sem restart por crash.
+	for range 2 {
+		if err := e.sup.Command(ctx, "mod-a", psychoscopev1.ComandoControle_ENCERRAR, nil); err != nil {
+			t.Fatal(err)
+		}
+		if e.state("mod-a") != psychoscopev1.EstadoModulo_ESTADO_ENCERRADO || !processGone(prev.PID) {
+			t.Fatalf("estado=%v", e.state("mod-a"))
+		}
+		if err := e.sup.Command(ctx, "mod-a", psychoscopev1.ComandoControle_RETOMAR, nil); err != nil {
+			t.Fatalf("RETOMAR de modulo encerrado: %v", err)
+		}
+		e.waitState(t, "mod-a", psychoscopev1.EstadoModulo_ESTADO_CONECTADO)
+		cur, _ := e.sup.Get("mod-a")
+		if cur.PID == 0 || cur.PID == prev.PID || cur.Restarts != 0 {
+			t.Fatalf("esperado processo novo sem restarts: antes=%+v depois=%+v", prev, cur)
+		}
+		prev = cur
+	}
+	// o modulo religado volta a aceitar comandos normais.
+	if err := e.sup.Command(ctx, "mod-a", psychoscopev1.ComandoControle_PAUSAR, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCommandOnStoppedModuleExplainsHowToStart(t *testing.T) {
+	e := setup(t, false, spec("mod-a"))
+	e.waitState(t, "mod-a", psychoscopev1.EstadoModulo_ESTADO_CONECTADO)
+	if err := e.sup.Stop(context.Background(), "mod-a"); err != nil {
+		t.Fatal(err)
+	}
+	err := e.sup.Command(context.Background(), "mod-a", psychoscopev1.ComandoControle_PAUSAR, nil)
+	if !errors.Is(err, ErrStopped) {
+		t.Fatalf("esperado ErrStopped, obtido %v", err)
+	}
+}
+
+func TestConcurrentResumeLaunchesOnce(t *testing.T) {
+	e := setup(t, false, spec("mod-a"))
+	e.waitState(t, "mod-a", psychoscopev1.EstadoModulo_ESTADO_CONECTADO)
+	if err := e.sup.Stop(context.Background(), "mod-a"); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	results := make(chan error, 8)
+	for range cap(results) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- e.sup.Command(context.Background(), "mod-a", psychoscopev1.ComandoControle_RETOMAR, nil)
+		}()
+	}
+	wg.Wait()
+	close(results)
+	ok := 0
+	for err := range results {
+		if err == nil {
+			ok++
+		} else if !errors.Is(err, ErrNotConnected) {
+			t.Fatalf("erro inesperado: %v", err)
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("exatamente um RETOMAR deve relancar, obtido %d", ok)
+	}
+	e.waitState(t, "mod-a", psychoscopev1.EstadoModulo_ESTADO_CONECTADO)
+}
+
+func TestResumeAfterShutdownDoesNotLaunch(t *testing.T) {
+	e := setup(t, false, spec("mod-a"))
+	e.waitState(t, "mod-a", psychoscopev1.EstadoModulo_ESTADO_CONECTADO)
+	i, _ := e.sup.Get("mod-a")
+	e.stop()
+	if !processGone(i.PID) {
+		t.Fatal("filho deveria ter sido encerrado")
+	}
+	err := e.sup.Command(context.Background(), "mod-a", psychoscopev1.ComandoControle_RETOMAR, nil)
+	if err == nil {
+		t.Fatal("RETOMAR com o supervisor encerrado deve falhar")
+	}
+	if i2, _ := e.sup.Get("mod-a"); i2.PID != 0 {
+		t.Fatalf("nenhum processo novo era esperado: %+v", i2)
 	}
 }
