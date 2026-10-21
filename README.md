@@ -19,11 +19,11 @@ Instalação como serviço (systemd, usuário dedicado, privilégios mínimos): 
   | `net.scan.syn` | varredura vertical (≥15 portas de um destino em 10s) e horizontal (≥20 hosts na mesma porta) por SYN puro | MÉDIA / ALTA |
   | `net.bruteforce.auth` | ≥10 conexões (portas de origem distintas) de uma origem ao mesmo destino:porta de autenticação (21, 22, 23, 445, 3389, 5900) em 30s | ALTA |
   | `net.icmp.sweep` | echo request (ICMPv4 tipo 8 / ICMPv6 128) para ≥20 destinos distintos em 10s | MÉDIA |
-  | `net.dns.nxdomain_burst` | cliente com ≥10 respostas NXDOMAIN para ≥8 domínios distintos em 30s (DGA) | MÉDIA |
+  | `net.dns.nxdomain_burst` | cliente com ≥10 respostas NXDOMAIN para ≥8 domínios distintos em 30s (DGA); consultas de DNS reverso (`in-addr.arpa`, `ip6.arpa`) não contam por padrão (`ignore_suffixes`) | MÉDIA |
   | `net.dns.tunnel` | ≥5 consultas distintas ao mesmo domínio base com rótulos longos (≥30) e de alta entropia (≥3.2 bits/char) em 60s | ALTA |
   | `net.dns.rate` | ≥200 consultas DNS de um cliente em 10s | MÉDIA |
   | `net.tls.suspicious` | ClientHello com SNI igual a um IP (MÉDIA), SNI com rótulo aleatório de ≥20 caracteres sem hífen (MÉDIA), versão máxima oferecida SSL3/TLS1.0/1.1 (BAIXA) ou ≥3 ClientHellos sem SNI em 60s (BAIXA) | MÉDIA / BAIXA |
-  | `net.beacon` | contatos periódicos de um cliente ao mesmo `destino:porta` (SYN) ou domínio (DNS): ≥8 contatos, intervalo médio de 5s a 1h e variação (desvio/média) ≤20%; estado próprio, não depende da janela | MÉDIA |
+  | `net.beacon` | contatos periódicos de um cliente ao mesmo `destino:porta` (SYN) ou domínio (DNS): ≥8 contatos, intervalo médio de 5s a 1h e variação (desvio/média) ≤20%; estado próprio, não depende da janela; destinos, portas e domínios conhecidos podem ser ignorados (`ignore_destinations`, `ignore_ports`, `ignore_domains`) | MÉDIA |
 
   Uma nova regra é um tipo que implementa `detection.Rule` (`Name`, `Eval(event, window) → alerta`); opcionalmente `detection.Gated`
   (`Key`, `Cooldown`) para pré-filtro barato e supressão de repetições.
@@ -34,9 +34,14 @@ Instalação como serviço (systemd, usuário dedicado, privilégios mínimos): 
 - **Métricas** (`internal/metrics`): contadores/medidores do motor, do armazenamento e de cada módulo; pela CLI/TUI e, opcionalmente, em
   `/metrics` no formato Prometheus (somente loopback por padrão, sem autenticação).
 - **CLI/TUI** (`cmd/psychoscope-cli`): sem argumentos abre a TUI (Bubbletea + Lipgloss) com painel de módulos, feed de alertas e linha de
-  eventos/s, alertas e descartes; teclas: `↑/↓` selecionar, `tab` alternar foco, `p` pausar, `r` retomar, `x` encerrar (confirma com `y`), `q` sair.
-  Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `alerts [--no-history]` (ao vivo),
-  `alerts --history [-n 50] [--since 2h] [--min-severity alta] [--rule R] [--module M]` (persistido), `metrics`, `--version`.
+  eventos/s, alertas e descartes. Teclas: `↑/↓` selecionar, `tab` alternar foco, `Enter` (no painel de alertas) abrir os detalhes do
+  alerta (todos os campos, descrição e contexto com quebra de linha, `↑/↓`/`PgUp`/`PgDn` rolam, `Esc`/`Enter`/`q` fecham), `p` pausar,
+  `r` retomar e `:` abrir a linha de comando. Sair e encerrar um módulo só existem como comandos, para não acontecerem por acidente:
+  `:q` (ou `:quit`, `:sair`) + `Enter` sai, `:stop` + `Enter` encerra o módulo selecionado (o rodapé mostra o alvo enquanto você digita),
+  `:pause` e `:resume`; `Tab` completa o comando e `Esc` cancela. `q`, `Esc` e `Ctrl+C` na tela principal só mostram a dica.
+  Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `alerts [--no-history] [-v]` (ao vivo),
+  `alerts --history [-n 50] [--since 2h] [--min-severity alta] [--rule R] [--module M] [-v]` (persistido; `-v` mostra o contexto
+  `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `--version`.
 
 ## Uso rápido (desenvolvimento)
 
@@ -62,11 +67,11 @@ go build -o /tmp/psychoscope ./cmd/psychoscope && go build -o /tmp/psychoscope-c
     "window": "60s",
     "disabled": [],
     "scan":       { "window": "10s", "vertical_ports": 15, "horizontal_hosts": 20, "cooldown": "60s" },
-    "nxdomain":   { "window": "30s", "min_responses": 10, "min_distinct": 8, "cooldown": "2m" },
+    "nxdomain":   { "window": "30s", "min_responses": 10, "min_distinct": 8, "cooldown": "2m", "ignore_suffixes": ["in-addr.arpa", "ip6.arpa"] },
     "tunnel":     { "window": "60s", "min_queries": 5, "min_label_len": 30, "min_entropy": 3.2, "allowed_bases": ["cdn.exemplo.com"], "cooldown": "2m" },
     "dns_rate":   { "window": "10s", "min_queries": 200, "cooldown": "2m" },
     "tls":        { "cooldown": "10m", "missing_sni_min": 3, "missing_sni_window": "60s", "min_label_len": 20, "min_entropy": 3.6, "allowed_bases": [] },
-    "beacon":     { "min_samples": 8, "min_interval": "5s", "max_interval": "1h", "max_cv": 0.2, "max_keys": 50000, "cooldown": "30m", "ignore_domains": [], "ignore_ports": [] },
+    "beacon":     { "min_samples": 8, "min_interval": "5s", "max_interval": "1h", "max_cv": 0.2, "max_keys": 50000, "cooldown": "30m", "ignore_domains": [], "ignore_ports": [], "ignore_destinations": ["203.0.113.0/24"] },
     "bruteforce": { "window": "30s", "min_attempts": 10, "ports": [21, 22, 23, 445, 3389, 5900], "cooldown": "5m", "ignore_sources": ["10.9.0.0/16"] },
     "icmp_sweep": { "window": "10s", "min_hosts": 20, "cooldown": "60s" }
   }
@@ -82,7 +87,7 @@ mesma ideia: `/var/lib/psychoscope` (ex.: `StateDirectory=`), senão `$XDG_STATE
 
 - O alerta usa o relógio de detecção do Core como `timestamp`; o instante do evento vai em `contexto["evento_ts"]`.
 - Falsos positivos esperados: `net.dns.tunnel` e `net.tls.suspicious` (entropia) em CDNs/serviços com rótulos longos aleatórios — use
-  `allowed_bases`; `net.beacon` em tarefas periódicas legítimas (verificações de conectividade, polling) — use `ignore_domains`/`ignore_ports`;
+  `allowed_bases`; `net.beacon` em tarefas periódicas legítimas (verificações de conectividade, polling) — use `ignore_destinations`/`ignore_domains`/`ignore_ports`;
   `net.bruteforce.auth` em automação — use `ignore_sources`.
 - O estado do motor (janela, cooldowns, séries do beacon) é só em memória: reiniciar o Core o zera. Os alertas, não.
 - A versão TLS informada é a maior **oferecida** no ClientHello, não a negociada.

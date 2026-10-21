@@ -96,13 +96,26 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
 
 ## Atualizar, desinstalar, backup
 
-- **Atualizar:** repita o passo 2 com os novos tarballs e `sudo systemctl restart psychoscope`. A configuração
-  e o banco de alertas são preservados.
+- **Atualizar:** repita o passo 2 com os novos tarballs e rode `sudo systemctl daemon-reload && sudo systemctl restart psychoscope`
+  (o `daemon-reload` é necessário porque a atualização pode trocar a unit). A configuração e o banco de alertas são preservados.
 - **Backup:** copie `/etc/psychoscope/` e `/var/lib/psychoscope/alerts.db` (SQLite em modo WAL; use
   `sqlite3 alerts.db ".backup alerts.bak"` com o serviço rodando).
-- **Desinstalar:** `sudo systemctl disable --now psychoscope`, remova `/etc/systemd/system/psychoscope.service`,
-  os binários em `/usr/local/bin` e, se quiser, `/etc/psychoscope`, `/var/lib/psychoscope` e o usuário
-  (`sudo userdel psychoscope`).
+- **Desinstalar:** pare e desabilite o serviço, remova a unit e os binários e recarregue o systemd:
+
+  ```bash
+  sudo systemctl disable --now psychoscope
+  sudo rm /etc/systemd/system/psychoscope.service
+  sudo rm /usr/local/bin/psychoscope /usr/local/bin/psychoscope-cli /usr/local/bin/mod-net-sensor
+  sudo systemctl daemon-reload
+  ```
+
+  Isso mantém a configuração e o histórico de alertas. Para apagar também esses dados e o usuário de sistema
+  (irreversível; faça o backup antes se quiser guardar os alertas):
+
+  ```bash
+  sudo rm -r /etc/psychoscope /var/lib/psychoscope
+  sudo userdel psychoscope
+  ```
 
 ## Solução de problemas
 
