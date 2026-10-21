@@ -32,21 +32,8 @@ func NewBruteForce(cfg BruteForceConfig) *BruteForce {
 func (r *BruteForce) Name() string            { return NameBruteForce }
 func (r *BruteForce) Cooldown() time.Duration { return r.cfg.Cooldown }
 
-func (r *BruteForce) ignored(ip string) bool {
-	p := net.ParseIP(ip)
-	if p == nil {
-		return false
-	}
-	for _, n := range r.ignore {
-		if n.Contains(p) {
-			return true
-		}
-	}
-	return false
-}
-
 func (r *BruteForce) Key(ev *detection.Event) (string, bool) {
-	if !ev.IsPureSYN() || !r.ports[ev.Net.PortaDestino] || ev.Net.IpOrigem == "" || r.ignored(ev.Net.IpOrigem) {
+	if !ev.IsPureSYN() || !r.ports[ev.Net.PortaDestino] || ev.Net.IpOrigem == "" || containsIP(r.ignore, ev.Net.IpOrigem) {
 		return "", false
 	}
 	return ev.Net.IpOrigem + "|" + ev.Net.IpDestino + ":" + strconv.Itoa(int(ev.Net.PortaDestino)), true

@@ -85,6 +85,9 @@ type BeaconConfig struct {
 	Cooldown      time.Duration `json:"cooldown"`
 	IgnoreDomains []string      `json:"ignore_domains"` // dominio exato ou sufixo
 	IgnorePorts   []int         `json:"ignore_ports"`   // portas de destino TCP
+	// IgnoreDestinations: IPs ou CIDRs de destino das conexoes TCP que nao formam beacon
+	// (aplicativo conhecido que mantem conexao periodica, como um gateway de mensagens).
+	IgnoreDestinations []string `json:"ignore_destinations"`
 }
 
 // BruteForceConfig parametriza net.bruteforce.auth.
@@ -234,6 +237,9 @@ func (b BeaconConfig) validate() error {
 			return fmt.Errorf("detection.beacon.ignore_ports: porta invalida %d", p)
 		}
 	}
+	if _, err := parseSources(b.IgnoreDestinations); err != nil {
+		return fmt.Errorf("detection.beacon.ignore_destinations: %w", err)
+	}
 	return nil
 }
 
@@ -271,6 +277,20 @@ func parseSources(list []string) ([]*net.IPNet, error) {
 		nets = append(nets, n)
 	}
 	return nets, nil
+}
+
+// containsIP informa se o IP (texto) pertence a alguma das redes; texto que nao e IP nao pertence.
+func containsIP(nets []*net.IPNet, ip string) bool {
+	p := net.ParseIP(ip)
+	if p == nil {
+		return false
+	}
+	for _, n := range nets {
+		if n.Contains(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // AllNames lista as regras disponiveis.

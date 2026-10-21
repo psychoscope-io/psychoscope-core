@@ -419,6 +419,36 @@ func TestBeaconIgnoreListsAndDisabledKinds(t *testing.T) {
 	}
 }
 
+// Caso real: um gateway de mensagens mantem conexao periodica (~91 s, sem variacao) com a
+// faixa do servico. Com ignore_destinations o destino conhecido deixa de alertar.
+func TestBeaconIgnoreDestinations(t *testing.T) {
+	cfg := Default()
+	cfg.Beacon.IgnoreDestinations = []string{"149.154.160.0/20", "2001:67c:4e8::/48", "198.51.100.9"}
+	for _, dst := range []string{"149.154.166.110", "149.154.175.255", "2001:67c:4e8:f004::9", "198.51.100.9"} {
+		evs := beatsTCP("192.168.0.8", dst, 443, 0, 91, 0, 12, nil)
+		if as := run(t, Default(), evs...); len(as) != 1 {
+			t.Fatalf("sem a excecao %s deveria alertar: %v", dst, names(as))
+		}
+		if as := run(t, cfg, evs...); len(as) != 0 {
+			t.Errorf("destino %s esta em ignore_destinations e nao deve alertar: %v", dst, names(as))
+		}
+	}
+	// fora das faixas (borda do /20 e IPv4 vizinho do IP exato) continua alertando
+	for _, dst := range []string{"149.154.176.1", "149.154.159.255", "198.51.100.10", "2001:67c:4e9::1"} {
+		if as := run(t, cfg, beatsTCP("192.168.0.8", dst, 443, 0, 91, 0, 12, nil)...); len(as) != 1 {
+			t.Errorf("destino %s fora da lista deve alertar: %v", dst, names(as))
+		}
+	}
+	// a lista vale para conexoes TCP; beacon de DNS continua sendo avaliado pelo dominio
+	var dns []*psychoscopev1.EventoFluxoRede
+	for i := 0; i < 12; i++ {
+		dns = append(dns, dnsQuery(float64(i)*30, "192.168.0.8", "c2.example.com"))
+	}
+	if as := run(t, cfg, dns...); len(as) != 1 {
+		t.Errorf("beacon DNS nao e afetado por ignore_destinations: %v", names(as))
+	}
+}
+
 func TestBeaconBoundedMemory(t *testing.T) {
 	cfg := Default().Beacon
 	cfg.MaxKeys = 100
@@ -472,6 +502,8 @@ func TestNewRulesConfigValidation(t *testing.T) {
 		"beacon cv > 1":                    func(c *Config) { c.Beacon.MaxCV = 1.5 },
 		"beacon max_keys baixo":            func(c *Config) { c.Beacon.MaxKeys = 10 },
 		"beacon porta invalida":            func(c *Config) { c.Beacon.IgnorePorts = []int{70000} },
+		"beacon destino invalido":          func(c *Config) { c.Beacon.IgnoreDestinations = []string{"nao-e-ip"} },
+		"beacon cidr invalido":             func(c *Config) { c.Beacon.IgnoreDestinations = []string{"10.0.0.0/99"} },
 		"bruteforce sem portas":            func(c *Config) { c.BruteForce.Ports = nil },
 		"bruteforce porta invalida":        func(c *Config) { c.BruteForce.Ports = []int{0} },
 		"bruteforce fonte invalida":        func(c *Config) { c.BruteForce.IgnoreSources = []string{"nao-e-ip"} },

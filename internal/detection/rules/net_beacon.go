@@ -3,6 +3,7 @@ package rules
 import (
 	"fmt"
 	"math"
+	"net"
 	"slices"
 	"sort"
 	"strconv"
@@ -28,8 +29,8 @@ type series struct {
 // serie curta de instantes por chave (cliente, alvo), limitada por max_keys. Contatos mais
 // proximos que min_interval contam como um so (retransmissoes e rajadas); um silencio
 // maior que 3x o intervalo medio reinicia a serie. Falsos positivos esperados: tarefas
-// periodicas legitimas (verificacoes de conectividade, polling) — use ignore_domains e
-// ignore_ports.
+// periodicas legitimas (verificacoes de conectividade, polling, gateways de mensagens) —
+// use ignore_domains, ignore_ports e ignore_destinations.
 //
 // Estado so e acessado pela goroutine do motor; nao ha travas.
 type Beacon struct {
@@ -38,6 +39,7 @@ type Beacon struct {
 	cooldown   map[string]time.Time // chave -> fim da supressao (tempo dos eventos)
 	ignoreDom  []string
 	ignorePort map[uint32]bool
+	ignoreDst  []*net.IPNet
 }
 
 func NewBeacon(cfg BeaconConfig) *Beacon {
@@ -48,6 +50,7 @@ func NewBeacon(cfg BeaconConfig) *Beacon {
 	for _, p := range cfg.IgnorePorts {
 		b.ignorePort[uint32(p)] = true //nolint:gosec // porta validada em Config.Validate (1-65535)
 	}
+	b.ignoreDst, _ = parseSources(cfg.IgnoreDestinations) // validado em Config.Validate
 	return b
 }
 
@@ -61,7 +64,7 @@ func (r *Beacon) classify(ev *detection.Event) (key, kind, target string, ok boo
 	}
 	switch {
 	case ev.IsPureSYN():
-		if r.ignorePort[ev.Net.PortaDestino] {
+		if r.ignorePort[ev.Net.PortaDestino] || containsIP(r.ignoreDst, ev.Net.IpDestino) {
 			return
 		}
 		target = ev.Net.IpDestino + ":" + strconv.Itoa(int(ev.Net.PortaDestino))

@@ -295,3 +295,25 @@ func TestNXDomainIgnoreSuffixesFromFile(t *testing.T) {
 		t.Fatalf("sufixo com ponto inicial deve ser recusado com mensagem acionavel: %v", err)
 	}
 }
+
+func TestBeaconIgnoreDestinationsFromFile(t *testing.T) {
+	dir := t.TempDir()
+	load := func(body string) (*Config, error) {
+		p := filepath.Join(dir, "b.json")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return Load([]string{"-config", p}, env(0, nil))
+	}
+	c, err := load(`{"detection":{"beacon":{"ignore_destinations":["149.154.160.0/20","2001:67c:4e8::/48"]}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Detection.Rules.Beacon.IgnoreDestinations; len(got) != 2 || got[0] != "149.154.160.0/20" {
+		t.Fatalf("ignore_destinations: %v", got)
+	}
+	if _, err := load(`{"detection":{"beacon":{"ignore_destinations":["telegram"]}}}`); err == nil ||
+		!strings.Contains(err.Error(), "ignore_destinations") || !strings.Contains(err.Error(), "telegram") {
+		t.Fatalf("valor invalido deve ser recusado citando o campo e o valor: %v", err)
+	}
+}
