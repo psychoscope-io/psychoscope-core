@@ -49,9 +49,4 @@ type (
 	clearStatusMsg struct{ seq int }
 )
 
-type pending struct {
-	module string
-	acao   psychoscopev1.ComandoControle_TipoAcao
-}
-
 // Model e o estado da TUI (tea.Model).

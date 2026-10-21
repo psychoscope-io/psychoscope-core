@@ -88,6 +88,14 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyTab}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
+	case "ctrl+c":
+		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "space":
+		return tea.KeyMsg{Type: tea.KeySpace}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -193,51 +201,12 @@ func TestCommandErrorIsShown(t *testing.T) {
 	}
 }
 
-func TestStopRequiresConfirmation(t *testing.T) {
-	be := &fakeBackend{mods: mods()}
-	m := NewModel(be)
-	feed(m, exec(m.fetchModules())...)
-
-	// x + n cancela
-	m.Update(key("x"))
-	if !strings.Contains(plain(m), `Encerrar "mod-net-sensor"? (y/n)`) {
-		t.Fatalf("prompt ausente:\n%s", plain(m))
-	}
-	m.Update(key("n"))
-	if len(be.cmds) != 0 || m.confirm != nil {
-		t.Fatalf("cancelar nao pode enviar comando: %v", be.cmds)
-	}
-
-	// qualquer outra tecla tambem cancela (nao dispara q/quit enquanto confirma)
-	m.Update(key("x"))
-	_, cmd := m.Update(key("q"))
-	if len(be.cmds) != 0 || m.confirm != nil {
-		t.Fatal("tecla diferente de y cancela")
-	}
-	if cmd != nil {
-		for _, msg := range exec(cmd) {
-			if _, quit := msg.(tea.QuitMsg); quit {
-				t.Fatal("q durante a confirmacao nao deve sair")
-			}
-		}
-	}
-
-	// x + y envia ENCERRAR
-	m.Update(key("x"))
-	_, cmd = m.Update(key("y"))
-	feed(m, exec(cmd)...)
-	if len(be.cmds) != 1 || be.cmds[0] != "mod-net-sensor:ENCERRAR" {
-		t.Fatalf("cmds=%v", be.cmds)
-	}
-}
-
 func TestNoModuleSelectedRejectsCommands(t *testing.T) {
 	be := &fakeBackend{}
 	m := NewModel(be)
 	feed(m, exec(m.fetchModules())...)
 	m.Update(key("p"))
-	m.Update(key("x"))
-	if len(be.cmds) != 0 || m.confirm != nil || !strings.Contains(m.status, "nenhum módulo") {
+	if len(be.cmds) != 0 || !strings.Contains(m.status, "nenhum módulo") {
 		t.Fatalf("status=%q cmds=%v", m.status, be.cmds)
 	}
 }
@@ -318,20 +287,7 @@ func TestStreamLifecycleAndReconnect(t *testing.T) {
 	}
 }
 
-func TestQuitKeysAndStatusExpiry(t *testing.T) {
-	for _, k := range []string{"q", "esc"} {
-		m := NewModel(&fakeBackend{})
-		st := &fakeStream{ch: make(chan *psychoscopev1.Alerta)}
-		m.Update(streamOpenedMsg{s: st})
-		_, cmd := m.Update(key(k))
-		if cmd == nil {
-			t.Fatalf("%s deveria sair", k)
-		}
-		if _, ok := cmd().(tea.QuitMsg); !ok || !st.closed {
-			t.Fatalf("%s: quit=%v closed=%v", k, ok, st.closed)
-		}
-	}
-
+func TestStatusExpiry(t *testing.T) {
 	m := NewModel(&fakeBackend{})
 	m.setStatus("a", false)
 	seq1 := m.statusSeq
@@ -369,6 +325,24 @@ func TestViewFitsEveryTerminalSize(t *testing.T) {
 				if w := lipgloss.Width(l); w > wantW {
 					t.Errorf("%v foco=%d linha %d com %d colunas (> %d): %q", size, f, i, w, wantW, ansi.Strip(l))
 				}
+			}
+		}
+	}
+}
+
+func TestCommandLineFitsEveryTerminalSize(t *testing.T) {
+	m, _, _ := newTestModel(t)
+	m.Update(key(":"))
+	typeLine(m, "stop "+strings.Repeat("x", 300))
+	for _, size := range [][2]int{{40, 12}, {80, 24}, {200, 60}, {10, 5}} {
+		m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		lines := strings.Split(m.View(), "\n")
+		if len(lines) != max(size[1], 12) {
+			t.Errorf("%v: %d linhas", size, len(lines))
+		}
+		for i, l := range lines {
+			if w := lipgloss.Width(l); w > max(size[0], 40) {
+				t.Errorf("%v linha %d com %d colunas: %q", size, i, w, ansi.Strip(l))
 			}
 		}
 	}

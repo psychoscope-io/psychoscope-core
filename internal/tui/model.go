@@ -25,7 +25,7 @@ type Model struct {
 	streamOK bool
 
 	focus   focus
-	confirm *pending
+	cmdline *cmdline // linha de comando (:) aberta, ou nil
 
 	status    string
 	statusErr bool
@@ -171,23 +171,37 @@ func (m *Model) selectedModule() *psychoscopev1.ModuloInfo {
 	return m.mods[m.selected]
 }
 
+// onKey despacha a tecla para o modo atual: linha de comando aberta ou tela principal.
+// O terminal entrega uma rajada de caracteres (digitacao rapida, tecla mantida) como uma
+// unica tecla com varias runas; cada runa e tratada como a sua propria tecla. Texto colado
+// (Paste) so e aceito na linha de comando.
 func (m *Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Confirmacao pendente: qualquer tecla responde.
-	if m.confirm != nil {
-		p := *m.confirm
-		m.confirm = nil
-		if s := k.String(); s == "y" || s == "Y" {
-			return m, tea.Batch(m.send(p.module, p.acao, "encerrar "+p.module), m.setStatus("encerrando "+p.module+"…", false))
+	if k.Type == tea.KeyRunes && len(k.Runes) > 1 && !k.Paste {
+		cmds := make([]tea.Cmd, 0, len(k.Runes))
+		for _, r := range k.Runes {
+			_, cmd := m.onKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+			cmds = append(cmds, cmd)
 		}
-		return m, m.setStatus("cancelado", false)
+		return m, tea.Sequence(cmds...)
 	}
+	if m.cmdline != nil {
+		return m.onKeyCmdline(k)
+	}
+	if k.Paste {
+		return m, nil
+	}
+	return m.onKeyMain(k)
+}
 
+// onKeyMain trata a tela principal. Sair e encerrar modulo so existem como comandos (:q, :stop).
+func (m *Model) onKeyMain(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.String() {
+	case ":":
+		m.cmdline = &cmdline{}
 	case "q", "ctrl+c", "esc":
-		if m.stream != nil {
-			m.stream.Close()
-		}
-		return m, tea.Quit
+		return m, m.setStatus(hintQuit, false)
+	case "x":
+		return m, m.setStatus(hintStop, false)
 	case "tab":
 		m.focus = (m.focus + 1) % 2
 	case "up", "k":
@@ -198,22 +212,10 @@ func (m *Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.move(-1 << 30)
 	case "G", "end":
 		m.move(1 << 30)
-	case "p", "r":
-		mod := m.selectedModule()
-		if mod == nil {
-			return m, m.setStatus("nenhum módulo selecionado", true)
-		}
-		acao, label := psychoscopev1.ComandoControle_PAUSAR, "pausar "
-		if k.String() == "r" {
-			acao, label = psychoscopev1.ComandoControle_RETOMAR, "retomar "
-		}
-		return m, m.send(mod.IdModulo, acao, label+mod.IdModulo)
-	case "x":
-		mod := m.selectedModule()
-		if mod == nil {
-			return m, m.setStatus("nenhum módulo selecionado", true)
-		}
-		m.confirm = &pending{mod.IdModulo, psychoscopev1.ComandoControle_ENCERRAR}
+	case "p":
+		return m, m.moduleCommand(psychoscopev1.ComandoControle_PAUSAR, "pausar ")
+	case "r":
+		return m, m.moduleCommand(psychoscopev1.ComandoControle_RETOMAR, "retomar ")
 	}
 	return m, nil
 }

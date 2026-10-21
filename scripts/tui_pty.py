@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Smoke da TUI num pseudo-terminal real: abre o psychoscope-cli sem argumentos, espera os
-textos esperados aparecerem na tela, envia 'q' e exige saida com codigo 0.
+textos esperados aparecerem na tela, envia ':q' e Enter (a TUI nao sai com uma tecla so) e
+exige saida com codigo 0.
 Uso: tui_pty.py <psychoscope-cli> <ctl.sock> <texto-esperado>..."""
 import fcntl, os, pty, re, select, struct, sys, termios, time
 
@@ -28,7 +29,7 @@ while missing and time.time() < deadline:
     text = ANSI.sub(b"", buf).decode("utf-8", "replace")
     missing = [e for e in expected if e not in text]
 
-os.write(fd, b"q")
+os.write(fd, b":q\r")
 status = None
 end = time.time() + 5
 while time.time() < end:
@@ -43,7 +44,7 @@ while time.time() < end:
         pass
 if status is None:
     os.kill(pid, 9)
-    print("FALHOU: a TUI nao saiu apos 'q'")
+    print("FALHOU: a TUI nao saiu apos ':q'")
     sys.exit(1)
 if missing:
     print("FALHOU: textos ausentes na tela:", missing)
@@ -52,4 +53,4 @@ if missing:
 if not (os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0):
     print("FALHOU: saida da TUI com status", status)
     sys.exit(1)
-print("ok: TUI renderizou", expected, "e saiu com 'q'")
+print("ok: TUI renderizou", expected, "e saiu com ':q'")

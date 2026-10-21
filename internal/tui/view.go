@@ -97,8 +97,8 @@ func (m *Model) View() string {
 
 func (m *Model) footer(w int) string {
 	switch {
-	case m.confirm != nil:
-		return fit(errStyle.Render(fmt.Sprintf("Encerrar %q? (y/n)", m.confirm.module)), w)
+	case m.cmdline != nil:
+		return fit(m.cmdlineFooter(), w)
 	case m.status != "":
 		st := okStyle
 		if m.statusErr {
@@ -106,5 +106,5 @@ func (m *Model) footer(w int) string {
 		}
 		return fit(st.Render(m.status), w)
 	}
-	return fit(dimStyle.Render("↑/↓ selecionar · tab foco · p pausar · r retomar · x encerrar · q sair"), w)
+	return fit(dimStyle.Render("↑/↓ selecionar · tab foco · p pausar · r retomar · : comandos (:q sair, :stop encerrar)"), w)
 }
