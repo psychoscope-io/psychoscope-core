@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/detection"
@@ -40,6 +41,10 @@ type NXDomainConfig struct {
 	MinResponses int           `json:"min_responses"` // respostas NXDOMAIN ao mesmo cliente
 	MinDistinct  int           `json:"min_distinct"`  // dominios distintos entre elas
 	Cooldown     time.Duration `json:"cooldown"`
+	// IgnoreSuffixes: nomes que nao entram na contagem (o proprio dominio e seus subdominios).
+	// DNS reverso de redes privadas (varias redes Docker, por exemplo) gera rajadas de
+	// NXDOMAIN legitimas; DGA usa nomes diretos. Lista vazia conta todos.
+	IgnoreSuffixes []string `json:"ignore_suffixes"`
 }
 
 // TunnelConfig parametriza net.dns.tunnel.
@@ -114,10 +119,11 @@ type Config struct {
 // Default devolve limiares conservadores.
 func Default() Config {
 	return Config{
-		Scan:     ScanConfig{Window: 10 * time.Second, VerticalPorts: 15, HorizontalHosts: 20, Cooldown: time.Minute, MaxScan: 5000},
-		NXDomain: NXDomainConfig{Window: 30 * time.Second, MinResponses: 10, MinDistinct: 8, Cooldown: 2 * time.Minute},
-		Tunnel:   TunnelConfig{Window: time.Minute, MinQueries: 5, MinLabelLen: 30, MinEntropy: 3.2, Cooldown: 2 * time.Minute},
-		DNSRate:  DNSRateConfig{Window: 10 * time.Second, MinQueries: 200, Cooldown: 2 * time.Minute},
+		Scan: ScanConfig{Window: 10 * time.Second, VerticalPorts: 15, HorizontalHosts: 20, Cooldown: time.Minute, MaxScan: 5000},
+		NXDomain: NXDomainConfig{Window: 30 * time.Second, MinResponses: 10, MinDistinct: 8, Cooldown: 2 * time.Minute,
+			IgnoreSuffixes: []string{"in-addr.arpa", "ip6.arpa"}},
+		Tunnel:  TunnelConfig{Window: time.Minute, MinQueries: 5, MinLabelLen: 30, MinEntropy: 3.2, Cooldown: 2 * time.Minute},
+		DNSRate: DNSRateConfig{Window: 10 * time.Second, MinQueries: 200, Cooldown: 2 * time.Minute},
 		TLS: TLSConfig{Cooldown: 10 * time.Minute, MissingSNIMin: 3, MissingSNIWindow: time.Minute,
 			MinLabelLen: 20, MinEntropy: 3.6},
 		Beacon: BeaconConfig{MinSamples: 8, MinInterval: 5 * time.Second, MaxInterval: time.Hour, MaxCV: 0.2,
@@ -154,10 +160,38 @@ func (c Config) Validate() error {
 	if err := c.validatePositive(); err != nil {
 		return err
 	}
+	if err := c.NXDomain.validate(); err != nil {
+		return err
+	}
 	if err := c.Beacon.validate(); err != nil {
 		return err
 	}
 	return c.BruteForce.validate()
+}
+
+func (n NXDomainConfig) validate() error {
+	for _, s := range n.IgnoreSuffixes {
+		if s == "" || strings.HasPrefix(s, ".") || strings.ContainsAny(s, " \t,") {
+			return fmt.Errorf("detection.nxdomain.ignore_suffixes: sufixo invalido %q (use o nome sem ponto inicial, por exemplo in-addr.arpa)", s)
+		}
+	}
+	return nil
+}
+
+// normalizeDomains devolve os nomes em minusculas e sem o ponto final.
+func normalizeDomains(list []string) []string {
+	out := make([]string, len(list))
+	for i, d := range list {
+		out[i] = strings.TrimSuffix(strings.ToLower(d), ".")
+	}
+	return out
+}
+
+// hasDomainSuffix informa se domain e igual a algum nome de suffixes (ja normalizados) ou e
+// subdominio dele; domain pode vir com maiusculas e ponto final.
+func hasDomainSuffix(domain string, suffixes []string) bool {
+	d := strings.TrimSuffix(strings.ToLower(domain), ".")
+	return slices.ContainsFunc(suffixes, func(s string) bool { return d == s || strings.HasSuffix(d, "."+s) })
 }
 
 // validatePositive exige limiares, janelas e cooldowns positivos em todas as regras.

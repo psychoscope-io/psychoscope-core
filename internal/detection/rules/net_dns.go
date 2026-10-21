@@ -18,9 +18,14 @@ const rcodeNXDomain = 3
 
 // NXDomainBurst detecta clientes que recebem muitas respostas NXDOMAIN para dominios
 // distintos em pouco tempo — padrao tipico de malware com DGA procurando seu C2 (MEDIA).
-type NXDomainBurst struct{ cfg NXDomainConfig }
+type NXDomainBurst struct {
+	cfg    NXDomainConfig
+	ignore []string // ignore_suffixes normalizados (minusculos, sem ponto)
+}
 
-func NewNXDomainBurst(cfg NXDomainConfig) *NXDomainBurst { return &NXDomainBurst{cfg} }
+func NewNXDomainBurst(cfg NXDomainConfig) *NXDomainBurst {
+	return &NXDomainBurst{cfg: cfg, ignore: normalizeDomains(cfg.IgnoreSuffixes)}
+}
 
 func (r *NXDomainBurst) Name() string            { return NameDNSNXDomain }
 func (r *NXDomainBurst) Cooldown() time.Duration { return r.cfg.Cooldown }
@@ -30,9 +35,15 @@ func isNX(ev *detection.Event) bool {
 	return d != nil && d.EhResposta && d.CodigoResposta == rcodeNXDomain
 }
 
+// counts informa se a resposta entra na contagem: e NXDOMAIN e o nome consultado nao termina
+// em nenhum ignore_suffixes (DNS reverso de redes privadas nao e DGA).
+func (r *NXDomainBurst) counts(ev *detection.Event) bool {
+	return isNX(ev) && !hasDomainSuffix(ev.DNS().DominioConsultado, r.ignore)
+}
+
 // Key: o cliente e o destino da resposta.
 func (r *NXDomainBurst) Key(ev *detection.Event) (string, bool) {
-	if !isNX(ev) || ev.Net.IpDestino == "" {
+	if !r.counts(ev) || ev.Net.IpDestino == "" {
 		return "", false
 	}
 	return ev.Net.IpDestino, true
@@ -49,7 +60,7 @@ func (r *NXDomainBurst) Eval(ev *detection.Event, w *detection.Window) *psychosc
 		if e.At.Before(cutoff) {
 			break
 		}
-		if isNX(e) {
+		if r.counts(e) {
 			count++
 			domains[e.DNS().DominioConsultado] = struct{}{}
 		}

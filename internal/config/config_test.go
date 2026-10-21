@@ -261,3 +261,37 @@ func TestDetectionNewRuleSections(t *testing.T) {
 		t.Errorf("a mensagem deve apontar a secao e listar os campos validos: %v", err)
 	}
 }
+
+func TestNXDomainIgnoreSuffixesFromFile(t *testing.T) {
+	dir := t.TempDir()
+	load := func(body string) (*Config, error) {
+		p := filepath.Join(dir, "n.json")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return Load([]string{"-config", p}, env(0, nil))
+	}
+	c, err := load(`{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Detection.Rules.NXDomain.IgnoreSuffixes; len(got) != 2 || got[0] != "in-addr.arpa" || got[1] != "ip6.arpa" {
+		t.Fatalf("padrao: %v", got)
+	}
+	// a lista do arquivo substitui o padrao; lista vazia conta todos os nomes
+	for body, want := range map[string]int{
+		`{"detection":{"nxdomain":{"ignore_suffixes":["corp.example"]}}}`: 1,
+		`{"detection":{"nxdomain":{"ignore_suffixes":[]}}}`:               0,
+	} {
+		c, err := load(body)
+		if err != nil {
+			t.Fatalf("%s: %v", body, err)
+		}
+		if got := c.Detection.Rules.NXDomain.IgnoreSuffixes; len(got) != want {
+			t.Errorf("%s: %v", body, got)
+		}
+	}
+	if _, err := load(`{"detection":{"nxdomain":{"ignore_suffixes":[".arpa"]}}}`); err == nil || !strings.Contains(err.Error(), "ignore_suffixes") {
+		t.Fatalf("sufixo com ponto inicial deve ser recusado com mensagem acionavel: %v", err)
+	}
+}

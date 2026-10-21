@@ -194,6 +194,73 @@ func TestNXDomainFalsePositives(t *testing.T) {
 	}
 }
 
+// Reverse DNS de redes privadas (varias redes Docker ao ligar a maquina) gera NXDOMAIN
+// para muitos nomes distintos: nao e DGA e nao deve alertar com a configuracao padrao.
+func reverseLookups(n int) []*psychoscopev1.EventoFluxoRede {
+	var evs []*psychoscopev1.EventoFluxoRede
+	for i := 0; i < n; i++ {
+		evs = append(evs, dnsResp(float64(i), "192.168.0.8", fmt.Sprintf("1.0.%d.172.in-addr.arpa", 17+i), 3))
+	}
+	return evs
+}
+
+func TestNXDomainIgnoresReverseZonesByDefault(t *testing.T) {
+	if as := run(t, Default(), reverseLookups(10)...); len(as) != 0 {
+		t.Fatalf("DNS reverso nao deve alertar: %v", names(as))
+	}
+	// IPv6 e caixa/ponto final diferentes tambem sao ignorados
+	var evs []*psychoscopev1.EventoFluxoRede
+	for i := 0; i < 12; i++ {
+		evs = append(evs, dnsResp(float64(i), "192.168.0.8", fmt.Sprintf("%x.0.0.0.IP6.ARPA.", i), 3))
+	}
+	if as := run(t, Default(), evs...); len(as) != 0 {
+		t.Fatalf("ip6.arpa com maiusculas e ponto final nao deve alertar: %v", names(as))
+	}
+}
+
+func TestNXDomainReverseZonesDoNotMaskARealBurst(t *testing.T) {
+	// 9 reversos + 9 nomes diretos aleatorios: so os diretos contam, e 9 < min_responses (10)
+	evs := reverseLookups(9)
+	for i := 0; i < 9; i++ {
+		evs = append(evs, dnsResp(float64(20+i)*0.5, "192.168.0.8", fmt.Sprintf("xk%dqz.example.com", i), 3))
+	}
+	if as := run(t, Default(), evs...); len(as) != 0 {
+		t.Fatalf("reversos nao somam para o limiar: %v", names(as))
+	}
+	// com 12 nomes diretos o DGA continua sendo detectado, mesmo misturado ao reverso
+	for i := 9; i < 12; i++ {
+		evs = append(evs, dnsResp(float64(20+i)*0.5, "192.168.0.8", fmt.Sprintf("xk%dqz.example.com", i), 3))
+	}
+	as := run(t, Default(), evs...)
+	// o alerta sai no 10o nome direto (limiar), e os exemplos nao incluem nenhum reverso
+	if len(as) != 1 || as[0].Contexto["dominios_distintos"] != "10" || strings.Contains(as[0].Contexto["dominios_exemplo"], "arpa") {
+		t.Fatalf("DGA misturado ao DNS reverso deve alertar so com os nomes diretos: %v", as)
+	}
+}
+
+func TestNXDomainEmptyIgnoreSuffixesCountsEverything(t *testing.T) {
+	cfg := Default()
+	cfg.NXDomain.IgnoreSuffixes = nil
+	if as := run(t, cfg, reverseLookups(10)...); len(as) != 1 {
+		t.Fatalf("sem ignore_suffixes o reverso volta a contar: %v", names(as))
+	}
+}
+
+func TestNXDomainIgnoreSuffixesValidation(t *testing.T) {
+	for _, bad := range []string{"", ".arpa", "in addr.arpa", "a.com,b.com"} {
+		c := Default()
+		c.NXDomain.IgnoreSuffixes = []string{bad}
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "ignore_suffixes") {
+			t.Errorf("sufixo %q deveria ser recusado: %v", bad, err)
+		}
+	}
+	c := Default()
+	c.NXDomain.IgnoreSuffixes = []string{"corp.example", "in-addr.arpa"}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // ---- tunel DNS ----
 
 func randLabel(rng *rand.Rand, n int) string {
