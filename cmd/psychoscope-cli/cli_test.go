@@ -163,6 +163,49 @@ func TestAlertsHistoryQuery(t *testing.T) {
 	}
 }
 
+func TestAlertsVerboseShowsContext(t *testing.T) {
+	cl, bus, st, _ := setup(t)
+	a := al("ctx1", "net.dns.nxdomain_burst", psychoscopev1.Severidade_SEVERIDADE_MEDIA, time.Minute)
+	a.Contexto = map[string]string{"cliente": "192.168.0.8", "dominios_exemplo": "1.0.17.172.in-addr.arpa,1.0.18.172.in-addr.arpa", "a_primeiro": "x"}
+	semCtx := al("ctx2", "net.scan.syn", psychoscopev1.Severidade_SEVERIDADE_ALTA, 30*time.Second)
+	_ = st.Insert(context.Background(), []*psychoscopev1.Alerta{a, semCtx})
+
+	// historico: sem -v a saida nao muda (uma linha por alerta); com -v o contexto vem ordenado e recuado
+	plain, err := runCLI(t, cl, "alerts", "--history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(plain, "\n"); got != 3 || strings.Contains(plain, "cliente=") {
+		t.Fatalf("sem -v: 2 alertas + rodape e nenhum contexto:\n%s", plain)
+	}
+	verbose, err := runCLI(t, cl, "alerts", "--history", "-v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "descricao ctx1\n    a_primeiro=x\n    cliente=192.168.0.8\n    dominios_exemplo=1.0.17.172.in-addr.arpa,1.0.18.172.in-addr.arpa\n"
+	if !strings.Contains(verbose, want) {
+		t.Fatalf("contexto ordenado e recuado sob o alerta:\n%s", verbose)
+	}
+	if strings.Contains(verbose, "descricao ctx2\n    ") || !strings.HasSuffix(verbose, "-- 2 de 2 alertas --\n") {
+		t.Fatalf("alerta sem contexto nao ganha linhas extras:\n%s", verbose)
+	}
+
+	// ao vivo
+	bus.Publish(a)
+	var out bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, cl, []string{"alerts", "-v"}, &out) }()
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "    cliente=192.168.0.8") {
+		t.Fatalf("stream ao vivo com -v:\n%s", out.String())
+	}
+}
+
 func TestAlertsLiveStream(t *testing.T) {
 	cl, bus, _, _ := setup(t)
 	bus.Publish(al("antigo", "r", psychoscopev1.Severidade_SEVERIDADE_BAIXA, time.Hour))

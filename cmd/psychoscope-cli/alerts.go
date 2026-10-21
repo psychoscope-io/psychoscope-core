@@ -52,12 +52,29 @@ func parseSeverity(s string) (psychoscopev1.Severidade, error) {
 	return 0, fmt.Errorf("--min-severity invalida %q (use baixa, media, alta ou critica)", s)
 }
 
-func formatAlert(a *psychoscopev1.Alerta) string {
+// formatAlert devolve a linha do alerta. Com verbose, o contexto vem logo abaixo, uma linha
+// recuada "chave=valor" por chave, em ordem; sem verbose a saida e uma linha so por alerta
+// (scripts, como o e2e, contam linhas).
+func formatAlert(a *psychoscopev1.Alerta, verbose bool) string {
 	ts := "----/--/-- --:--:--"
 	if a.Timestamp != nil {
 		ts = a.Timestamp.AsTime().Local().Format("2006-01-02 15:04:05")
 	}
-	return fmt.Sprintf("%s [%s] %s: %s", ts, strings.TrimPrefix(a.Severidade.String(), "SEVERIDADE_"), a.Regra, a.Descricao)
+	line := fmt.Sprintf("%s [%s] %s: %s", ts, strings.TrimPrefix(a.Severidade.String(), "SEVERIDADE_"), a.Regra, a.Descricao)
+	if !verbose || len(a.Contexto) == 0 {
+		return line
+	}
+	keys := make([]string, 0, len(a.Contexto))
+	for k := range a.Contexto {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(line)
+	for _, k := range keys {
+		b.WriteString("\n    " + k + "=" + a.Contexto[k])
+	}
+	return b.String()
 }
 
 func cmdAlerts(ctx context.Context, cl *ctl.Client, args []string, out io.Writer) error {
@@ -71,6 +88,7 @@ func cmdAlerts(ctx context.Context, cl *ctl.Client, args []string, out io.Writer
 		minSev   = fs.String("min-severity", "", "baixa|media|alta|critica (com --history)")
 		rule     = fs.String("rule", "", "so desta regra (com --history)")
 		moduleID = fs.String("module", "", "so deste modulo (com --history)")
+		verbose  = fs.Bool("v", false, "mostra o contexto (chave=valor) de cada alerta")
 	)
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("alerts: %w", err)
@@ -83,7 +101,7 @@ func cmdAlerts(ctx context.Context, cl *ctl.Client, args []string, out io.Writer
 		if *since != "" || *minSev != "" || *rule != "" || *moduleID != "" {
 			return errors.New("alerts: --since, --min-severity, --rule e --module exigem --history")
 		}
-		return streamAlerts(ctx, cl, !*noHist, out)
+		return streamAlerts(ctx, cl, !*noHist, *verbose, out)
 	}
 
 	d, err := parseSince(*since)
@@ -103,20 +121,20 @@ func cmdAlerts(ctx context.Context, cl *ctl.Client, args []string, out io.Writer
 		return err
 	}
 	for i := len(as) - 1; i >= 0; i-- { // cronologico: o mais novo por ultimo
-		fmt.Fprintln(out, formatAlert(as[i]))
+		fmt.Fprintln(out, formatAlert(as[i], *verbose))
 	}
 	fmt.Fprintf(out, "-- %d de %d alertas --\n", len(as), total)
 	return nil
 }
 
-func streamAlerts(ctx context.Context, cl *ctl.Client, history bool, out io.Writer) error {
+func streamAlerts(ctx context.Context, cl *ctl.Client, history, verbose bool, out io.Writer) error {
 	st, err := cl.StreamAlerts(ctx, history)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
 	for a := range st.C {
-		fmt.Fprintln(out, formatAlert(a))
+		fmt.Fprintln(out, formatAlert(a, verbose))
 	}
 	if ctx.Err() != nil {
 		return nil

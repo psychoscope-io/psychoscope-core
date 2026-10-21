@@ -3,8 +3,8 @@
 //	psychoscope-cli [--ctl-socket S]                       TUI interativa (terminal)
 //	psychoscope-cli [--ctl-socket S] list                  tabela de modulos
 //	psychoscope-cli [--ctl-socket S] cmd <modulo> pause|resume|reconfigure|stop [chave=valor ...]
-//	psychoscope-cli [--ctl-socket S] alerts [--no-history] stream de alertas ao vivo (Ctrl+C sai)
-//	psychoscope-cli [--ctl-socket S] alerts --history ...  consulta o historico persistido
+//	psychoscope-cli [--ctl-socket S] alerts [--no-history] [-v] stream de alertas ao vivo (Ctrl+C sai)
+//	psychoscope-cli [--ctl-socket S] alerts --history [-v] ... consulta o historico persistido
 //	psychoscope-cli [--ctl-socket S] metrics               metricas do Core
 package main
 
@@ -30,9 +30,10 @@ const usage = `uso: psychoscope-cli [--ctl-socket S] [comando]
   (sem comando)                       abre a TUI interativa
   list                                lista os modulos
   cmd <modulo> pause|resume|reconfigure|stop [k=v ...]
-  alerts [--no-history]               acompanha os alertas ao vivo
-  alerts --history [-n 50] [--since 1h] [--min-severity alta] [--rule R] [--module M]
+  alerts [--no-history] [-v]          acompanha os alertas ao vivo
+  alerts --history [-n 50] [--since 1h] [--min-severity alta] [--rule R] [--module M] [-v]
                                       consulta o historico persistido
+                                      (-v mostra o contexto chave=valor de cada alerta)
   metrics                             metricas do Core
   --version                           versao`
 
