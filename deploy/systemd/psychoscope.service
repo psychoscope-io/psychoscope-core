@@ -11,6 +11,10 @@ ExecStart=/usr/local/bin/psychoscope --config /etc/psychoscope/psychoscope.json
 Restart=on-failure
 RestartSec=2s
 TimeoutStopSec=30s
+# SIGTERM so para o Core, que encerra o sensor de forma ordenada (comando ENCERRAR com ACK);
+# o que sobrar no grupo recebe SIGKILL no fim do timeout. Com o padrao (control-group) o sensor
+# recebia SIGTERM junto com o Core e o log mostrava "ENCERRAR nao confirmado ... broken pipe".
+KillMode=mixed
 
 # Diretorios gerenciados pelo systemd (dono: psychoscope). Com eles, o Core usa
 # /run/psychoscope (sockets) e /var/lib/psychoscope (alerts.db) sem configuracao extra.

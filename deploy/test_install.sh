@@ -16,6 +16,7 @@ done
 [ "$(stat -c %a "$T/stage/etc/psychoscope/psychoscope.json")" = 640 ] || fail "modo da configuracao"
 [ "$(stat -c %a "$T/stage/etc/psychoscope")" = 750 ] || fail "modo do diretorio de configuracao"
 grep -q '^ExecStart=/usr/local/bin/psychoscope --config /etc/psychoscope/psychoscope.json$' "$T/stage/etc/systemd/system/psychoscope.service" || fail "ExecStart da unit"
+grep -q '^KillMode=mixed$' "$T/stage/etc/systemd/system/psychoscope.service" || fail "KillMode=mixed na unit (o Core encerra o sensor de forma ordenada)"
 grep -q "setcap nao aplicado" "$T/err.txt" || fail "deveria avisar que o setcap nao foi aplicado em staging"
 grep -q "systemctl enable --now psychoscope" "$T/out.txt" || fail "instrucoes finais"
 python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$T/stage/etc/psychoscope/psychoscope.json" || fail "config de exemplo nao e JSON valido"
