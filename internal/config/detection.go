@@ -32,7 +32,12 @@ func DefaultDetection() Detection {
 // loadDetection sobrepoe a secao "detection" do arquivo aos defaults. Chaves desconhecidas
 // sao erro; cada secao de regra aceita apenas os campos da sua struct (tags json).
 func loadDetection(f fileDetection) (Detection, error) {
-	d := DefaultDetection()
+	return applyDetection(DefaultDetection(), f)
+}
+
+// applyDetection sobrepoe f a base (devolvida por valor; base nao e alterada: as listas sao
+// sempre substituidas, nunca editadas no lugar).
+func applyDetection(d Detection, f fileDetection) (Detection, error) {
 	sections := d.Rules.Sections()
 	keys := make([]string, 0, len(f.raw))
 	for k := range f.raw {
@@ -53,6 +58,7 @@ func loadDetection(f fileDetection) (Detection, error) {
 		case "queue_size":
 			err = json.Unmarshal(raw, &d.QueueSize)
 		case "disabled":
+			d.Rules.Disabled = nil // fatia nova: nao reaproveita o vetor da base
 			err = json.Unmarshal(raw, &d.Rules.Disabled)
 		default:
 			dst, ok := sections[k]

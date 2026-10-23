@@ -66,6 +66,11 @@ func sortedKeys(m map[string]int) []string {
 // setField decodifica raw no campo f; time.Duration vem como texto ("10s").
 func setField(f reflect.Value, raw json.RawMessage) error {
 	if f.Type() != durationType {
+		if f.Kind() == reflect.Slice {
+			// json.Unmarshal reaproveita o vetor de uma fatia existente; zerar garante uma fatia
+			// nova e evita alterar a configuracao de origem (a base de uma sobreposicao).
+			f.Set(reflect.Zero(f.Type()))
+		}
 		return json.Unmarshal(raw, f.Addr().Interface())
 	}
 	var s string
