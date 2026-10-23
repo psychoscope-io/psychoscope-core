@@ -87,15 +87,6 @@ func restartModule(t *testing.T, cl *ctl.Client) {
 	waitUntil(t, "modulo conectado", func() bool { return moduleIs(cl, psychoscopev1.EstadoModulo_ESTADO_CONECTADO) })
 }
 
-func field(l *psychoscopev1.ListaConfig, path string) *psychoscopev1.CampoConfig {
-	for _, f := range l.GetCampos() {
-		if f.Caminho == path {
-			return f
-		}
-	}
-	return nil
-}
-
 func alertCount(t *testing.T, cl *ctl.Client) int {
 	t.Helper()
 	as, _, err := cl.Alerts(context.Background(), ctl.AlertQuery{})
@@ -114,7 +105,7 @@ func TestSettingsChangeDetectionLiveAndPersist(t *testing.T) {
 	ctx := context.Background()
 
 	waitAlerts(t, cl, 1) // 30 portas > limiar padrao (15): alerta de varredura
-	if l, err := cl.Config(ctx); err != nil || l.SomenteLeitura || field(l, "detection.scan.vertical_ports").GetValorAtual() != "15" ||
+	if l, err := cl.Config(ctx); err != nil || l.SomenteLeitura || ctl.FindField(l, "detection.scan.vertical_ports").GetValorAtual() != "15" ||
 		l.ArquivoAjustes != cfg.OverridesPath {
 		t.Fatalf("leitura inicial: %+v %v", l, err)
 	}
@@ -124,7 +115,7 @@ func TestSettingsChangeDetectionLiveAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := field(l, "detection.scan.vertical_ports"); f.ValorAtual != "1000" || f.Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE || len(l.Avisos) != 0 {
+	if f := ctl.FindField(l, "detection.scan.vertical_ports"); f.ValorAtual != "1000" || f.Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE || len(l.Avisos) != 0 {
 		t.Fatalf("resposta do aplicar: %+v avisos=%v", f, l.Avisos)
 	}
 	if st, err := os.Stat(cfg.OverridesPath); err != nil || st.Mode().Perm() != 0o600 {
@@ -142,7 +133,7 @@ func TestSettingsChangeDetectionLiveAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := field(l, "detection.scan.vertical_ports"); f.ValorAtual != "15" || f.Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_PADRAO {
+	if f := ctl.FindField(l, "detection.scan.vertical_ports"); f.ValorAtual != "15" || f.Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_PADRAO {
 		t.Fatalf("restaurado: %+v", f)
 	}
 	if _, err := os.Stat(cfg.OverridesPath); !os.IsNotExist(err) {
@@ -161,7 +152,7 @@ func TestSettingsChangeDetectionLiveAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f := field(l, "detection.scan.vertical_ports"); f.ValorAtual != "1000" || f.Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE {
+	if f := ctl.FindField(l, "detection.scan.vertical_ports"); f.ValorAtual != "1000" || f.Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE {
 		t.Fatalf("apos reiniciar o Core: %+v", f)
 	}
 }

@@ -57,12 +57,7 @@ func (s *settingsState) selectField(f *psychoscopev1.CampoConfig) {
 }
 
 func (s *settingsState) find(path string) *psychoscopev1.CampoConfig {
-	for _, f := range s.fields() {
-		if f.Caminho == path {
-			return f
-		}
-	}
-	return nil
+	return ctl.FindField(s.list, path)
 }
 
 // stage poe o valor (JSON) de um campo no rascunho; valor igual ao atual desfaz o rascunho.
@@ -326,7 +321,7 @@ func (m *Model) cmdSet(args []string) tea.Cmd {
 		if d, ok := s.draft[f.Caminho]; ok {
 			value = d
 		}
-		return m.setStatus(fmt.Sprintf("%s = %s  (padrão: %s)", f.Caminho, shownValue(f, value), shownValue(f, f.ValorPadrao)), false)
+		return m.setStatus(fmt.Sprintf("%s = %s  (padrão: %s)", f.Caminho, ctl.DisplayValue(f, value), ctl.DisplayValue(f, f.ValorPadrao)), false)
 	}
 	if s.readOnly() {
 		return m.setStatus(readOnlyMsg, true)
@@ -373,12 +368,4 @@ func (m *Model) completeSetPath(c *cmdline) {
 		}
 	}
 	c.buf = "set " + prefix
-}
-
-// shownValue mostra um valor JSON como se digitaria; lista vazia aparece como [].
-func shownValue(f *psychoscopev1.CampoConfig, jsonValue string) string {
-	if t := ctl.TextFromValue(f, jsonValue); t != "" {
-		return t
-	}
-	return "[]"
 }

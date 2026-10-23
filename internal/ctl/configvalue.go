@@ -109,3 +109,35 @@ func TextFromValue(f *psychoscopev1.CampoConfig, value string) string {
 	}
 	return value
 }
+
+// DisplayValue mostra um valor JSON do contrato como se digitaria; lista vazia aparece como
+// [] para nao sumir numa tabela.
+func DisplayValue(f *psychoscopev1.CampoConfig, value string) string {
+	if t := TextFromValue(f, value); t != "" {
+		return t
+	}
+	return "[]"
+}
+
+// OriginLabel e o nome, em portugues, da origem do valor de um campo.
+func OriginLabel(o psychoscopev1.OrigemCampo) string {
+	switch o {
+	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_PADRAO:
+		return "padrão"
+	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_ARQUIVO:
+		return "arquivo"
+	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE:
+		return "ajuste"
+	}
+	return "?"
+}
+
+// FindField devolve o campo de caminho path, ou nil.
+func FindField(l *psychoscopev1.ListaConfig, path string) *psychoscopev1.CampoConfig {
+	for _, f := range l.GetCampos() {
+		if f.Caminho == path {
+			return f
+		}
+	}
+	return nil
+}

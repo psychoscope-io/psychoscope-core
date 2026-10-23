@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -115,16 +116,16 @@ func (m *Model) settingsRowText(r settingsRow) string {
 	}
 	f := s.fields()[r.field]
 	value, drafted := m.settingsValue(f)
-	origin := originLabel(f.Origem)
+	origin := ctl.OriginLabel(f.Origem)
 	plainRow := fmt.Sprintf("   %-*s %-*s %-*s %-*s", colKey, trunc(keyOf(f.Caminho), colKey),
-		colValue, trunc(value, colValue), colDefault, trunc(shownValue(f, f.ValorPadrao), colDefault), colOrigin, origin)
+		colValue, trunc(value, colValue), colDefault, trunc(ctl.DisplayValue(f, f.ValorPadrao), colDefault), colOrigin, origin)
 	if r.field == s.sel {
 		return selStyle.Render(plainRow)
 	}
 	if drafted {
 		return fmt.Sprintf("   %-*s %s %-*s %-*s", colKey, trunc(keyOf(f.Caminho), colKey),
 			draftStyle.Render(fmt.Sprintf("%-*s", colValue, trunc(value, colValue))),
-			colDefault, trunc(shownValue(f, f.ValorPadrao), colDefault), colOrigin, origin)
+			colDefault, trunc(ctl.DisplayValue(f, f.ValorPadrao), colDefault), colOrigin, origin)
 	}
 	return plainRow
 }
@@ -133,12 +134,12 @@ func (m *Model) settingsRowText(r settingsRow) string {
 func (m *Model) settingsValue(f *psychoscopev1.CampoConfig) (string, bool) {
 	s := m.cfg
 	if d, ok := s.draft[f.Caminho]; ok {
-		return shownValue(f, d) + " *", true
+		return ctl.DisplayValue(f, d) + " *", true
 	}
 	if s.restore[f.Caminho] {
 		return "(restaurar ao valor base) *", true
 	}
-	return shownValue(f, f.ValorAtual), false
+	return ctl.DisplayValue(f, f.ValorAtual), false
 }
 
 // settingsDescription sao as duas linhas sob a lista: o que o campo faz e o formato do valor.
@@ -164,18 +165,6 @@ func typeHint(t psychoscopev1.TipoCampo) string {
 		return "números inteiros separados por vírgula (vazia = nenhum)"
 	}
 	return ""
-}
-
-func originLabel(o psychoscopev1.OrigemCampo) string {
-	switch o {
-	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_PADRAO:
-		return "padrão"
-	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_ARQUIVO:
-		return "arquivo"
-	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE:
-		return "ajuste"
-	}
-	return "?"
 }
 
 // settingsFooter e o rodape da tela: a edicao em andamento ou a ajuda.

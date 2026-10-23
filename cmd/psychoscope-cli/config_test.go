@@ -52,7 +52,7 @@ func TestConfigListFiltersAndShowsDescriptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"CAMPO", "VALOR", "PADRAO", "ORIGEM", "detection.window", "detection.scan.vertical_ports",
-		"detection.nxdomain.ignore_suffixes", "in-addr.arpa, ip6.arpa", "storage.max_alerts", "padrao", "ajustes gravados em"} {
+		"detection.nxdomain.ignore_suffixes", "in-addr.arpa, ip6.arpa", "storage.max_alerts", "padrão", "ajustes gravados em"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("listagem sem %q:\n%s", want, out)
 		}

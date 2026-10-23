@@ -84,3 +84,30 @@ func TestTextFromValueRoundTrips(t *testing.T) {
 		}
 	}
 }
+
+func TestDisplayValueOriginLabelAndFindField(t *testing.T) {
+	lista := fld(psychoscopev1.TipoCampo_TIPO_CAMPO_LISTA_TEXTO)
+	if got := DisplayValue(lista, `[]`); got != "[]" {
+		t.Errorf("lista vazia nao pode sumir da tabela: %q", got)
+	}
+	if got := DisplayValue(lista, `["a","b"]`); got != "a, b" {
+		t.Errorf("lista: %q", got)
+	}
+	if got := DisplayValue(fld(psychoscopev1.TipoCampo_TIPO_CAMPO_DURACAO), `"1m"`); got != "1m" {
+		t.Errorf("duracao: %q", got)
+	}
+	for o, want := range map[psychoscopev1.OrigemCampo]string{
+		psychoscopev1.OrigemCampo_ORIGEM_CAMPO_PADRAO:       "padrão",
+		psychoscopev1.OrigemCampo_ORIGEM_CAMPO_ARQUIVO:      "arquivo",
+		psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE:       "ajuste",
+		psychoscopev1.OrigemCampo_ORIGEM_CAMPO_DESCONHECIDA: "?",
+	} {
+		if got := OriginLabel(o); got != want {
+			t.Errorf("%v: %q, esperado %q", o, got, want)
+		}
+	}
+	l := &psychoscopev1.ListaConfig{Campos: []*psychoscopev1.CampoConfig{{Caminho: "a.b"}, {Caminho: "c.d"}}}
+	if FindField(l, "c.d") != l.Campos[1] || FindField(l, "x") != nil || FindField(nil, "a.b") != nil {
+		t.Error("FindField")
+	}
+}

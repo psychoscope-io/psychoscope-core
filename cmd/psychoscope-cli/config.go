@@ -52,7 +52,7 @@ func configList(ctx context.Context, cl *ctl.Client, args []string, out io.Write
 			continue
 		}
 		n++
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", f.Caminho, shown(f, f.ValorAtual), shown(f, f.ValorPadrao), originName(f.Origem))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", f.Caminho, ctl.DisplayValue(f, f.ValorAtual), ctl.DisplayValue(f, f.ValorPadrao), ctl.OriginLabel(f.Origem))
 		if verbose {
 			fmt.Fprintf(tw, "  %s\t\t\t\n", f.Descricao)
 		}
@@ -82,7 +82,7 @@ func configSet(ctx context.Context, cl *ctl.Client, args []string, out io.Writer
 		if !found {
 			return fmt.Errorf("config set: %q deve ser campo=valor", kv)
 		}
-		f := findField(before, path)
+		f := ctl.FindField(before, path)
 		if f == nil {
 			return fmt.Errorf("config set: campo desconhecido ou nao editavel: %q (veja: psychoscope-cli config)", path)
 		}
@@ -104,7 +104,7 @@ func configReset(ctx context.Context, cl *ctl.Client, args []string, out io.Writ
 		return err
 	}
 	for _, path := range args {
-		if findField(before, path) == nil {
+		if ctl.FindField(before, path) == nil {
 			return fmt.Errorf("config reset: campo desconhecido ou nao editavel: %q (veja: psychoscope-cli config)", path)
 		}
 	}
@@ -119,10 +119,10 @@ func apply(ctx context.Context, cl *ctl.Client, before *psychoscopev1.ListaConfi
 	}
 	changed := 0
 	for _, f := range after.Campos {
-		old := findField(before, f.Caminho)
+		old := ctl.FindField(before, f.Caminho)
 		if old != nil && old.ValorAtual != f.ValorAtual {
 			changed++
-			fmt.Fprintf(out, "%s: %s -> %s\n", f.Caminho, shown(old, old.ValorAtual), shown(f, f.ValorAtual))
+			fmt.Fprintf(out, "%s: %s -> %s\n", f.Caminho, ctl.DisplayValue(old, old.ValorAtual), ctl.DisplayValue(f, f.ValorAtual))
 		}
 	}
 	if changed == 0 {
@@ -132,33 +132,4 @@ func apply(ctx context.Context, cl *ctl.Client, before *psychoscopev1.ListaConfi
 		fmt.Fprintln(out, "aviso:", w)
 	}
 	return nil
-}
-
-func findField(l *psychoscopev1.ListaConfig, path string) *psychoscopev1.CampoConfig {
-	for _, f := range l.GetCampos() {
-		if f.Caminho == path {
-			return f
-		}
-	}
-	return nil
-}
-
-// shown mostra o valor como se digitaria; lista vazia aparece como [] para nao sumir na tabela.
-func shown(f *psychoscopev1.CampoConfig, value string) string {
-	if t := ctl.TextFromValue(f, value); t != "" {
-		return t
-	}
-	return "[]"
-}
-
-func originName(o psychoscopev1.OrigemCampo) string {
-	switch o {
-	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_PADRAO:
-		return "padrao"
-	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_ARQUIVO:
-		return "arquivo"
-	case psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE:
-		return "ajuste"
-	}
-	return "?"
 }
