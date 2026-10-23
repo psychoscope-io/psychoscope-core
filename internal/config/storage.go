@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// Padroes da persistencia de alertas.
+const (
+	DefaultRetentionDays = 30
+	DefaultMaxAlerts     = 100_000
+)
+
 // Storage configura a persistencia de alertas (SQLite).
 type Storage struct {
 	Enabled       bool
@@ -26,7 +32,7 @@ func (s Storage) Retention() time.Duration { return time.Duration(s.RetentionDay
 
 // loadStorage parte dos defaults (habilitado, 30 dias, 100 mil alertas) e sobrepoe o arquivo.
 func loadStorage(f fileStorage, e Env) Storage {
-	s := Storage{Enabled: true, Path: filepath.Join(DefaultStateDir(e), "alerts.db"), RetentionDays: 30, MaxAlerts: 100_000}
+	s := Storage{Enabled: true, Path: filepath.Join(DefaultStateDir(e), "alerts.db"), RetentionDays: DefaultRetentionDays, MaxAlerts: DefaultMaxAlerts}
 	if f.Enabled != nil {
 		s.Enabled = *f.Enabled
 	}
