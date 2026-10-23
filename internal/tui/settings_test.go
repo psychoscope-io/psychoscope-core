@@ -491,3 +491,53 @@ func TestSetScrollsTheChangedFieldIntoView(t *testing.T) {
 		t.Fatalf("o campo alterado fora da primeira pagina deve aparecer na tela:\n%s", v)
 	}
 }
+
+// O :w envia uma copia do rascunho; edicoes feitas enquanto o pedido esta em andamento nao
+// podem ser apagadas pela resposta de sucesso.
+func TestWriteKeepsEditsMadeWhileTheRequestWasInFlight(t *testing.T) {
+	m, be := openCfg(t, false)
+	run(m, "set detection.scan.vertical_ports=30")
+	run(m, "set detection.beacon.ignore_ports&")
+	m.Update(key(":"))
+	typeLine(m, "w")
+	_, cmd := m.Update(key("enter"))
+	inFlight := exec(cmd) // o pedido foi ao Core, a resposta ainda nao chegou ao modelo
+
+	run(m, "set detection.window=2m")              // campo novo
+	run(m, "set detection.scan.vertical_ports=45") // mesmo campo, valor novo
+	feed(m, inFlight...)
+
+	if len(be.applies) != 1 || be.applies[0].patch["detection.scan.vertical_ports"] != "30" {
+		t.Fatalf("o pedido enviado tinha o valor antigo: %+v", be.applies)
+	}
+	if got := m.cfg.draft; len(got) != 2 || got["detection.window"] != `"2m"` || got["detection.scan.vertical_ports"] != "45" {
+		t.Fatalf("as duas edicoes novas continuam pendentes: %v", got)
+	}
+	if m.cfg.restore["detection.beacon.ignore_ports"] {
+		t.Fatal("o que foi enviado e aceito sai do rascunho")
+	}
+	if !strings.Contains(plain(m), "2 alteração(ões) não gravada(s)") {
+		t.Fatalf("o titulo conta as pendencias:\n%s", plain(m))
+	}
+}
+
+func TestWriteQuitDoesNotDiscardEditsMadeDuringTheRequest(t *testing.T) {
+	m, be := openCfg(t, false)
+	run(m, "set detection.scan.vertical_ports=30")
+	m.Update(key(":"))
+	typeLine(m, "wq")
+	_, cmd := m.Update(key("enter"))
+	inFlight := exec(cmd)
+	run(m, "set detection.window=2m")
+	feed(m, inFlight...)
+	if m.cfg == nil {
+		t.Fatal(":wq nao pode fechar a tela com uma edicao nova pendente")
+	}
+	if !strings.Contains(m.status, "1 alteração(ões) nova(s) ainda não gravada(s)") || !m.statusErr || len(be.applies) != 1 {
+		t.Fatalf("status=%q applies=%d", m.status, len(be.applies))
+	}
+	run(m, "wq") // agora grava o que sobrou e fecha
+	if m.cfg != nil || len(be.applies) != 2 {
+		t.Fatalf("segundo :wq: cfg=%v applies=%d", m.cfg, len(be.applies))
+	}
+}

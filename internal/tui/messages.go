@@ -62,7 +62,10 @@ type (
 		list       *psychoscopev1.ListaConfig
 		err        error
 		closeAfter bool
-		changes    int // campos enviados (ajustes e restauracoes)
+		// o que foi enviado: so isso sai do rascunho quando o Core aceita (a pessoa pode ter
+		// editado outros campos, ou os mesmos, enquanto o pedido estava em andamento)
+		patch   map[string]string
+		restore []string
 	}
 )
 

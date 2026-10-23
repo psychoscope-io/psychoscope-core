@@ -120,18 +120,31 @@ func (m *Model) onConfigApplied(msg configAppliedMsg) tea.Cmd {
 	if msg.err != nil { // o rascunho fica: a mensagem do Core diz qual campo corrigir
 		return m.setStatus(msg.err.Error(), true)
 	}
-	m.cfg.list = msg.list
-	m.cfg.draft, m.cfg.restore = map[string]string{}, map[string]bool{}
-	m.cfg.sel = clamp(m.cfg.sel, 0, len(m.cfg.fields())-1)
-	text := fmt.Sprintf("configuração aplicada (%d campo(s))", msg.changes)
+	s := m.cfg
+	s.list = msg.list
+	s.sel = clamp(s.sel, 0, len(s.fields())-1)
+	// sai do rascunho so o que foi enviado e continua igual: uma edicao feita depois do :w
+	// (ou um novo valor para o mesmo campo) segue pendente
+	for p, v := range msg.patch {
+		if s.draft[p] == v {
+			delete(s.draft, p)
+		}
+	}
+	for _, p := range msg.restore {
+		delete(s.restore, p)
+	}
+	text := fmt.Sprintf("configuração aplicada (%d campo(s))", len(msg.patch)+len(msg.restore))
 	if w := msg.list.GetAvisos(); len(w) > 0 {
 		text += ": " + strings.Join(w, "; ")
 	}
-	cmd := m.setStatus(text, len(msg.list.GetAvisos()) > 0)
+	isErr := len(msg.list.GetAvisos()) > 0
 	if msg.closeAfter {
+		if n := s.pending(); n > 0 { // :wq nao pode descartar o que foi editado durante o envio
+			return m.setStatus(fmt.Sprintf("%s; %d alteração(ões) nova(s) ainda não gravada(s): :w grava, :q! descarta", text, n), true)
+		}
 		m.cfg = nil
 	}
-	return cmd
+	return m.setStatus(text, isErr)
 }
 
 // ---- teclas ----

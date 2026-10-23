@@ -87,7 +87,7 @@ func (m *Model) applyConfig(patch map[string]string, restore []string, closeAfte
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
 		l, err := be.ApplyConfig(ctx, patch, restore)
-		return configAppliedMsg{list: l, err: err, closeAfter: closeAfter, changes: len(patch) + len(restore)}
+		return configAppliedMsg{list: l, err: err, closeAfter: closeAfter, patch: patch, restore: restore}
 	}
 }
 
