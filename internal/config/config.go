@@ -61,7 +61,7 @@ func Load(args []string, e Env) (*Config, error) {
 		LogLevel:       firstNonEmpty(fl.logLevel, fc.LogLevel, "info"),
 		Storage:        loadStorage(fc.Storage, e),
 		Metrics:        Metrics{Listen: fc.Metrics.Listen, AllowNonLoopback: fc.Metrics.AllowNonLoopback},
-		OverridesPath:  filepath.Join(DefaultStateDir(e), "overrides.json"),
+		OverridesPath:  firstNonEmpty(fc.OverridesPath, filepath.Join(DefaultStateDir(e), "overrides.json")),
 	}
 	if err := c.loadScalars(fc); err != nil {
 		return nil, err

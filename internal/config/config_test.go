@@ -327,3 +327,16 @@ func TestLoadSetsTheOverridesPathInTheStateDir(t *testing.T) {
 		t.Fatalf("OverridesPath=%q, esperado %q", c.OverridesPath, want)
 	}
 }
+
+func TestOverridesPathFromTheFileOverridesTheStateDirDefault(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "c.json")
+	custom := filepath.Join(dir, "meus-ajustes.json")
+	if err := os.WriteFile(p, []byte(`{"overrides_path":"`+custom+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load([]string{"-config", p}, env(0, nil))
+	if err != nil || c.OverridesPath != custom {
+		t.Fatalf("overrides_path do arquivo: %q %v", c.OverridesPath, err)
+	}
+}

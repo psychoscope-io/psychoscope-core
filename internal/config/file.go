@@ -23,6 +23,7 @@ type fileConfig struct {
 	Detection      fileDetection `json:"detection"`
 	Storage        fileStorage   `json:"storage"`
 	Metrics        fileMetrics   `json:"metrics"`
+	OverridesPath  string        `json:"overrides_path"`
 }
 
 // flags sao as opcoes de linha de comando.
