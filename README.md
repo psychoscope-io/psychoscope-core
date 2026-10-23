@@ -37,8 +37,10 @@ Instalação como serviço (systemd, usuário dedicado, privilégios mínimos): 
   eventos/s, alertas e descartes. Teclas: `↑/↓` selecionar, `tab` alternar foco, `Enter` (no painel de alertas) abrir os detalhes do
   alerta (todos os campos, descrição e contexto com quebra de linha, `↑/↓`/`PgUp`/`PgDn` rolam, `Esc`/`Enter`/`q` fecham), `p` pausar,
   `r` retomar e `:` abrir a linha de comando. Sair e encerrar um módulo só existem como comandos, para não acontecerem por acidente:
-  `:q` (ou `:quit`, `:sair`) + `Enter` sai, `:stop` + `Enter` encerra o módulo selecionado (o rodapé mostra o alvo enquanto você digita),
-  `:pause` e `:resume` (`resume`/`r` também reinicia um módulo encerrado por `:stop`); `Tab` completa o comando e `Esc` cancela. `q`, `Esc` e `Ctrl+C` na tela principal só mostram a dica.
+  `:q` (ou `:quit`) + `Enter` fecha a visão atual, como no vim (no detalhe do alerta fecha só o detalhe; na tela principal sai da TUI),
+  e `:stop` + `Enter` encerra o módulo selecionado (o rodapé mostra o alvo enquanto você digita). `p` pausa e `r` retoma o módulo selecionado
+  (`r` também reinicia um módulo encerrado por `:stop`). `Tab` completa o comando e `Esc` cancela. `q`, `Esc` e `Ctrl+C` na tela principal só
+  mostram a dica. **Mudança na v0.4.0:** `:sair`, `:pause` e `:resume` foram removidos (repetiam `q`/`:q`, `p` e `r`); os comandos seguem o vocabulário do vim, em inglês.
   Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `alerts [--no-history] [-v]` (ao vivo),
   `alerts --history [-n 50] [--since 2h] [--min-severity alta] [--rule R] [--module M] [-v]` (persistido; `-v` mostra o contexto
   `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `--version`.

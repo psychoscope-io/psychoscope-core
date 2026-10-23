@@ -34,6 +34,8 @@ func (m *Model) onKeyDetail(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "enter", "q":
 		m.detail = nil
 		return m, nil
+	case ":":
+		m.cmdline = &cmdline{} // :q fecha o detalhe; :stop age no modulo selecionado
 	case "up", "k":
 		m.detail.scroll--
 	case "down", "j":

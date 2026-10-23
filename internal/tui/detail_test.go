@@ -75,7 +75,7 @@ func TestDetailShowsEveryField(t *testing.T) {
 		"Descrição",
 		"Contexto", "cliente", "192.168.0.8",
 		"dominios_exemplo", "1.0.17.172.in-addr.arpa,", "1.0.21.172.in-addr.arpa",
-		"Esc, Enter ou q fecham",
+		"Esc, Enter, q ou :q fecham",
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("detalhe sem %q:\n%s", want, v)

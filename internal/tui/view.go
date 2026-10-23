@@ -109,7 +109,7 @@ func (m *Model) footer(w int) string {
 		}
 		return fit(st.Render(m.status), w)
 	case m.detail != nil:
-		return fit(dimStyle.Render("↑/↓ rolar · PgUp/PgDn página · g/G início/fim · Esc, Enter ou q fecham"), w)
+		return fit(dimStyle.Render("↑/↓ rolar · PgUp/PgDn página · g/G início/fim · Esc, Enter, q ou :q fecham"), w)
 	}
 	return fit(dimStyle.Render("↑/↓ selecionar · tab foco · Enter detalhes · p pausar · r retomar · :q sair · :stop encerrar"), w)
 }

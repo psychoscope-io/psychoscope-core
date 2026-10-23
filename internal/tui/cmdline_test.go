@@ -63,7 +63,7 @@ func TestSingleKeysNeverQuit(t *testing.T) {
 }
 
 func TestQuitCommands(t *testing.T) {
-	for _, name := range []string{"q", "quit", "sair"} {
+	for _, name := range []string{"q", "quit", "q!"} {
 		m, _, st := newTestModel(t)
 		m.Update(key(":"))
 		typeLine(m, name)
@@ -117,13 +117,13 @@ func TestStopCommandActsOnSelectedModule(t *testing.T) {
 	// o alvo acompanha a selecao
 	m.Update(key("down"))
 	m.Update(key(":"))
-	typeLine(m, "pause")
+	typeLine(m, "stop")
 	if !strings.Contains(plain(m), "→ mod-yara") {
 		t.Fatalf("alvo deveria ser o modulo selecionado:\n%s", plain(m))
 	}
 	_, cmd = m.Update(key("enter"))
 	feed(m, exec(cmd)...)
-	if got := be.cmds[len(be.cmds)-1]; got != "mod-yara:PAUSAR" {
+	if got := be.cmds[len(be.cmds)-1]; got != "mod-yara:ENCERRAR" {
 		t.Fatalf("cmds=%v", be.cmds)
 	}
 }
@@ -145,9 +145,14 @@ func TestStopWithoutModuleIsRejected(t *testing.T) {
 
 func TestUnknownCommandAndArgumentsAreRejected(t *testing.T) {
 	for _, tc := range []struct{ line, want string }{
-		{"foo", "comando desconhecido: foo (use :q, :stop, :pause, :resume)"},
+		{"foo", "comando desconhecido: foo (use :q, :q!, :quit, :stop)"},
 		{"stop mod-net-sensor", "o comando stop não aceita argumentos"},
-		{"q!", "comando desconhecido: q!"},
+		{"q agora", "o comando q não aceita argumentos"},
+		{"q! agora", "o comando q não aceita argumentos"},
+		// comandos removidos na v0.4.0: duplicavam as teclas p e r, ou eram apelido nao-vim
+		{"sair", "comando desconhecido: sair"},
+		{"pause", "comando desconhecido: pause"},
+		{"resume", "comando desconhecido: resume"},
 	} {
 		m, be, st := newTestModel(t)
 		m.Update(key(":"))
@@ -164,24 +169,18 @@ func TestUnknownCommandAndArgumentsAreRejected(t *testing.T) {
 
 func TestTabCompletion(t *testing.T) {
 	for _, tc := range []struct{ typed, want string }{
-		{"s", "sair"}, // "sair" e "stop" casam com 's': maior prefixo comum e "s"
+		{"s", "stop"}, // unico candidato
 		{"st", "stop"},
-		{"pa", "pause"},
-		{"re", "resume"},
 		{"qu", "quit"},
-		{"q", "q"}, // "q" e "quit": sem candidato unico
+		{"q", "q"}, // "q", "q!" e "quit": o maior prefixo comum e o proprio "q"
 		{"zz", "zz"},
 	} {
 		m, _, _ := newTestModel(t)
 		m.Update(key(":"))
 		typeLine(m, tc.typed)
 		m.Update(key("tab"))
-		want := tc.want
-		if tc.typed == "s" {
-			want = "s"
-		}
-		if m.cmdline.buf != want {
-			t.Errorf("tab apos %q: buf=%q, esperado %q", tc.typed, m.cmdline.buf, want)
+		if m.cmdline.buf != tc.want {
+			t.Errorf("tab apos %q: buf=%q, esperado %q", tc.typed, m.cmdline.buf, tc.want)
 		}
 	}
 }
@@ -212,10 +211,10 @@ func TestBurstOfRunesIsSplitIntoKeys(t *testing.T) {
 
 	// rajada que inclui a quebra de linha: sai direto
 	m, _, st = newTestModel(t)
-	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":sair")})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(":quit")})
 	_, cmd = m.Update(key("enter"))
 	if !isQuit(cmd) || !st.closed {
-		t.Fatal(":sair em rajada deveria sair")
+		t.Fatal(":quit em rajada deveria sair")
 	}
 
 	// uma rajada de teclas comuns nao sai nem quebra: "qqq" so mostra a dica
@@ -238,5 +237,46 @@ func TestPastedTextOnlyGoesToTheCommandLine(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("stop\n"), Paste: true})
 	if m.cmdline.buf != "stop" || len(be.cmds) != 0 {
 		t.Fatalf("buf=%q cmds=%v", m.cmdline.buf, be.cmds)
+	}
+}
+
+// :q fecha a visao atual, como no vim: com o detalhe do alerta aberto ele so fecha o detalhe.
+func TestQuitCommandClosesTheDetailBeforeQuittingTheApp(t *testing.T) {
+	m := modelWithAlerts(t, 100, 30, burstAlert())
+	m.Update(key("enter"))
+	if m.detail == nil {
+		t.Fatal("o detalhe deveria estar aberto")
+	}
+	m.Update(key(":")) // o detalhe aceita a linha de comando
+	if m.cmdline == nil {
+		t.Fatal(":' no detalhe abre a linha de comando")
+	}
+	typeLine(m, "q")
+	_, cmd := m.Update(key("enter"))
+	if m.detail != nil || isQuit(cmd) {
+		t.Fatal(":q com o detalhe aberto fecha so o detalhe")
+	}
+	// agora na tela principal, o mesmo comando sai
+	m.Update(key(":"))
+	typeLine(m, "q")
+	_, cmd = m.Update(key("enter"))
+	if !isQuit(cmd) {
+		t.Fatal(":q na tela principal sai")
+	}
+}
+
+func TestStopFromTheDetailScreenStillTargetsTheSelectedModule(t *testing.T) {
+	m := modelWithAlerts(t, 100, 30, burstAlert())
+	be := m.be.(*fakeBackend)
+	m.Update(key("enter"))
+	m.Update(key(":"))
+	typeLine(m, "stop")
+	if !strings.Contains(plain(m), "→ mod-net-sensor") {
+		t.Fatalf("o alvo aparece no rodape tambem no detalhe:\n%s", plain(m))
+	}
+	_, cmd := m.Update(key("enter"))
+	feed(m, exec(cmd)...)
+	if len(be.cmds) != 1 || be.cmds[0] != "mod-net-sensor:ENCERRAR" {
+		t.Fatalf("cmds=%v", be.cmds)
 	}
 }

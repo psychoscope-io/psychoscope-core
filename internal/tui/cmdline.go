@@ -19,8 +19,28 @@ const (
 	hintStop = "para encerrar o módulo: digite :stop e Enter"
 )
 
-// commandNames lista os comandos aceitos, em ordem alfabetica (usada na completude com Tab).
-var commandNames = []string{"pause", "q", "quit", "resume", "sair", "stop"}
+// commandFunc executa um comando; args sao os termos digitados depois do nome.
+type commandFunc func(m *Model, args []string) tea.Cmd
+
+// commands sao os comandos aceitos: uma forma principal por acao, e so os apelidos do proprio
+// vim (q e quit). Teclas diretas ficam para navegar e para acoes reversiveis (p, r); comando
+// com ':' e para o que sai de uma tela ou e destrutivo.
+var commands = map[string]commandFunc{
+	"q":    (*Model).cmdQuit,
+	"q!":   (*Model).cmdQuit,
+	"quit": (*Model).cmdQuit,
+	"stop": (*Model).cmdStop,
+}
+
+// commandNames lista os nomes dos comandos em ordem alfabetica (completude com Tab e ajuda).
+func commandNames() []string {
+	names := make([]string, 0, len(commands))
+	for n := range commands {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	return names
+}
 
 // cmdline e o texto digitado depois do ':'.
 type cmdline struct{ buf string }
@@ -35,17 +55,15 @@ func (c *cmdline) name() string {
 }
 
 // actsOnModule informa se o comando digitado age no modulo selecionado.
-func (c *cmdline) actsOnModule() bool {
-	return slices.Contains([]string{"stop", "pause", "resume"}, c.name())
-}
+func (c *cmdline) actsOnModule() bool { return c.name() == "stop" }
 
-// complete completa o comando com o unico candidato, ou com o maior prefixo comum.
+// complete completa o nome do comando com o unico candidato, ou com o maior prefixo comum.
 func (c *cmdline) complete() {
 	if strings.ContainsAny(c.buf, " \t") {
 		return
 	}
 	var matches []string
-	for _, n := range commandNames {
+	for _, n := range commandNames() {
 		if strings.HasPrefix(n, c.buf) {
 			matches = append(matches, n)
 		}
@@ -101,25 +119,45 @@ func (m *Model) runCommand(line string) tea.Cmd {
 	if len(f) == 0 {
 		return nil
 	}
-	if len(f) > 1 {
-		return m.setStatus(fmt.Sprintf("o comando %s não aceita argumentos", f[0]), true)
-	}
-	switch f[0] {
-	case "q", "quit", "sair":
-		return m.quit()
-	case "stop":
-		mod := m.selectedModule()
-		if mod == nil {
-			return m.setStatus("nenhum módulo selecionado", true)
+	fn, ok := commands[f[0]]
+	if !ok {
+		valid := make([]string, 0, len(commands))
+		for _, n := range commandNames() {
+			valid = append(valid, ":"+n)
 		}
-		return tea.Batch(m.send(mod.IdModulo, psychoscopev1.ComandoControle_ENCERRAR, "encerrar "+mod.IdModulo),
-			m.setStatus("encerrando "+mod.IdModulo+"…", false))
-	case "pause":
-		return m.moduleCommand(psychoscopev1.ComandoControle_PAUSAR, "pausar ")
-	case "resume":
-		return m.moduleCommand(psychoscopev1.ComandoControle_RETOMAR, "retomar ")
+		return m.setStatus(fmt.Sprintf("comando desconhecido: %s (use %s)", f[0], strings.Join(valid, ", ")), true)
 	}
-	return m.setStatus(fmt.Sprintf("comando desconhecido: %s (use :q, :stop, :pause, :resume)", f[0]), true)
+	return fn(m, f[1:])
+}
+
+// argsError recusa argumentos num comando que nao os aceita.
+func (m *Model) argsError(name string) tea.Cmd {
+	return m.setStatus(fmt.Sprintf("o comando %s não aceita argumentos", name), true)
+}
+
+// cmdQuit fecha a visao atual: o detalhe do alerta, se aberto, ou a propria TUI (como o :q do vim).
+func (m *Model) cmdQuit(args []string) tea.Cmd {
+	if len(args) > 0 {
+		return m.argsError("q")
+	}
+	if m.detail != nil {
+		m.detail = nil
+		return nil
+	}
+	return m.quit()
+}
+
+// cmdStop encerra o modulo selecionado.
+func (m *Model) cmdStop(args []string) tea.Cmd {
+	if len(args) > 0 {
+		return m.argsError("stop")
+	}
+	mod := m.selectedModule()
+	if mod == nil {
+		return m.setStatus("nenhum módulo selecionado", true)
+	}
+	return tea.Batch(m.send(mod.IdModulo, psychoscopev1.ComandoControle_ENCERRAR, "encerrar "+mod.IdModulo),
+		m.setStatus("encerrando "+mod.IdModulo+"…", false))
 }
 
 // moduleCommand envia acao ao modulo selecionado.

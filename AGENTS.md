@@ -9,7 +9,7 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 - `internal/supervisor`: `supervisor.go` (API: Run/Stop/Command/List), `ipc_integration.go` (autorização por PID e estado da conexão), `lifecycle.go` (processo filho: backoff, watchdog, parada em escalada).
 - `internal/detection` (+ `rules/`): janela deslizante, motor, regras. `internal/alerts`: barramento e histórico.
 - `internal/store` (SQLite e gravador em lote), `internal/metrics`, `internal/ctl` (`ctl.sock`: um manipulador por pedido, e cliente), `internal/version`, `internal/testmod` (módulo falso para testes).
-- `internal/tui`: `model.go` (estado, `Update` e despacho de teclas), `cmdline.go` (linha de comando `:q`/`:stop`/`:pause`/`:resume`), `detail.go` (detalhe do alerta com rolagem), `messages.go`, `commands.go` (chamadas assíncronas), `view.go` e `panels.go`.
+- `internal/tui`: `model.go` (estado, `Update` e despacho de teclas), `cmdline.go` (linha de comando `:`; tabela `commands`: `q`, `q!`, `quit`, `stop`), `detail.go` (detalhe do alerta com rolagem), `messages.go`, `commands.go` (chamadas assíncronas), `view.go` e `panels.go`.
 - `internal/config`: `config.go` (`Load`/`Validate`), `env.go`, `file.go` (flags e esquema JSON), uma seção por arquivo (`modules`, `storage`, `metrics`, `detection`) e `overlay.go`.
 - `internal/app`: ponto de composição (`app.go`: `build` → `listen` → `serve`, com encerramento ordenado), `sink.go` (telemetria → motor) e `metrics.go` (coletores).
 - `deploy/` (unit do systemd, `install.sh`) e `docs/INSTALL.md`.
