@@ -202,6 +202,10 @@ func TestSetCommandStagesRestoresAndShows(t *testing.T) {
 		m.cfg.draft["detection.beacon.ignore_destinations"] != `["149.154.160.0/20","2001:67c:4e8::/48"]` {
 		t.Fatalf("rascunho: %v", m.cfg.draft)
 	}
+	// o :set leva a selecao ao campo alterado, para a mudanca ficar a vista
+	if got := m.cfg.selected().Caminho; got != "detection.beacon.ignore_destinations" {
+		t.Fatalf("a selecao acompanha o ultimo :set: %s", got)
+	}
 	// mostrar o valor
 	run(m, "set detection.scan.vertical_ports")
 	if !strings.Contains(m.status, "detection.scan.vertical_ports = 30") || !strings.Contains(m.status, "padrão: 15") {
@@ -467,5 +471,20 @@ func TestSelectedFieldStaysVisibleWhileScrolling(t *testing.T) {
 	}
 	if m.cfg.sel != 0 || !strings.Contains(plain(m), "detection\n") && !strings.Contains(plain(m), " detection ") {
 		t.Fatalf("de volta ao topo:\n%s", plain(m))
+	}
+}
+
+// Com muitos campos, o :set num campo fora da primeira pagina precisa rolar ate ele.
+func TestSetScrollsTheChangedFieldIntoView(t *testing.T) {
+	m, be := openCfg(t, false)
+	for i := 0; i < 60; i++ {
+		be.cfg.Campos = append(be.cfg.Campos, cfgField(fmt.Sprintf("detection.zz%02d.campo", i), tInt, "1", "1", oDef, "d"))
+	}
+	run(m, "config")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 16})
+	run(m, "set detection.zz55.campo=7")
+	v := plain(m)
+	if !strings.Contains(v, "7 *") || !strings.Contains(v, "detection.zz55") {
+		t.Fatalf("o campo alterado fora da primeira pagina deve aparecer na tela:\n%s", v)
 	}
 }

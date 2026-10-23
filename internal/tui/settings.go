@@ -49,6 +49,13 @@ func (s *settingsState) selected() *psychoscopev1.CampoConfig {
 	return s.fields()[s.sel]
 }
 
+// selectField move a selecao para o campo f.
+func (s *settingsState) selectField(f *psychoscopev1.CampoConfig) {
+	if i := slices.Index(s.fields(), f); i >= 0 {
+		s.sel = i
+	}
+}
+
 func (s *settingsState) find(path string) *psychoscopev1.CampoConfig {
 	for _, f := range s.fields() {
 		if f.Caminho == path {
@@ -291,6 +298,7 @@ func (m *Model) cmdSet(args []string) tea.Cmd {
 	if f == nil {
 		return m.setStatus(fmt.Sprintf("campo desconhecido ou não editável: %q (Tab completa)", path), true)
 	}
+	s.selectField(f) // leva a selecao ao campo, como o :set do vim: a mudanca fica a vista
 	switch {
 	case restoreIt:
 		if s.readOnly() {
