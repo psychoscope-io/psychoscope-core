@@ -87,6 +87,22 @@ func restartModule(t *testing.T, cl *ctl.Client) {
 	waitUntil(t, "modulo conectado", func() bool { return moduleIs(cl, psychoscopev1.EstadoModulo_ESTADO_CONECTADO) })
 }
 
+// processedEvents le o contador de eventos que o motor ja processou (metrica do Core).
+func processedEvents(t *testing.T, cl *ctl.Client) float64 {
+	t.Helper()
+	ms, err := cl.Metrics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range ms {
+		if m.Nome == "psychoscope_engine_events_processed_total" {
+			return m.Valor
+		}
+	}
+	t.Fatal("metrica de eventos processados ausente")
+	return 0
+}
+
 func alertCount(t *testing.T, cl *ctl.Client) int {
 	t.Helper()
 	as, _, err := cl.Alerts(context.Background(), ctl.AlertQuery{})
@@ -121,8 +137,10 @@ func TestSettingsChangeDetectionLiveAndPersist(t *testing.T) {
 	if st, err := os.Stat(cfg.OverridesPath); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("arquivo de ajustes: %v %v", st, err)
 	}
+	before := processedEvents(t, cl)
 	restartModule(t, cl)
-	time.Sleep(500 * time.Millisecond) // os SYNs chegam logo depois do Hello
+	// espera o motor processar os 30 SYNs reenviados (condicao observavel, nao um tempo fixo)
+	waitUntil(t, "motor processar os eventos reenviados", func() bool { return processedEvents(t, cl) >= before+30 })
 	if n := alertCount(t, cl); n != 1 {
 		t.Fatalf("com o limiar em 1000 a varredura nao pode gerar alerta novo: %d alertas", n)
 	}

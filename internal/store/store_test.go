@@ -286,15 +286,23 @@ func TestPersisterSetLimitsPrunesRightAway(t *testing.T) {
 	_ = s.Insert(context.Background(), batch)
 
 	// sem limites na partida e poda periodica de 1 h: nada e removido
-	p := NewPersister(s, alerts.NewBus(), PersisterConfig{PruneEvery: time.Hour})
+	bus := alerts.NewBus()
+	p := NewPersister(s, bus, PersisterConfig{PruneEvery: time.Hour, FlushEvery: 5 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { p.Run(ctx); close(done) }()
 	defer func() { cancel(); <-done }()
 	count := func() uint64 { n, _ := s.Count(context.Background()); return n }
-	time.Sleep(100 * time.Millisecond)
-	if count() != 7 {
-		t.Fatalf("sem limites nada e podado: %d", count())
+	// Sincroniza sem dormir: um alerta publicado so e gravado depois que Run assinou o barramento
+	// e fez a poda de partida (que vem antes do laco); quando ele aparece, a poda ja rodou.
+	sync := alert("sync", "r", 1, "m", now)
+	deadline := time.Now().Add(3 * time.Second)
+	for count() < 8 && time.Now().Before(deadline) {
+		bus.Publish(sync)
+		time.Sleep(5 * time.Millisecond)
+	}
+	if count() != 8 {
+		t.Fatalf("sem limites nada e podado (7 antigos e novos + o alerta de sincronia): %d", count())
 	}
 
 	waitFor := func(what string, want uint64) {
@@ -308,11 +316,11 @@ func TestPersisterSetLimitsPrunesRightAway(t *testing.T) {
 		}
 	}
 	p.SetLimits(24*time.Hour, 0) // a retencao nova vale ja, sem esperar a proxima poda
-	waitFor("retencao de 24 h", 6)
+	waitFor("retencao de 24 h", 7)
 	p.SetLimits(0, 3) // desliga a idade e passa a limitar a quantidade: ficam os 3 mais novos
 	waitFor("teto de 3", 3)
 	got, _, _ := s.Query(context.Background(), Filter{})
-	if want := []string{"n0", "n1", "n2"}; fmt.Sprint(ids(got)) != fmt.Sprint(want) {
+	if want := []string{"sync", "n0", "n1"}; fmt.Sprint(ids(got)) != fmt.Sprint(want) {
 		t.Fatalf("devem ficar os mais novos: %v", ids(got))
 	}
 }
