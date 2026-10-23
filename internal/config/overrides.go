@@ -10,6 +10,31 @@ import (
 	"strings"
 )
 
+// Chaves e caminhos dos campos de detection que nao sao de uma regra.
+const (
+	keyWindow   = "window"
+	keyDisabled = "disabled"
+
+	PathDetectionWindow   = "detection." + keyWindow
+	PathDetectionDisabled = "detection." + keyDisabled
+)
+
+// StorageField e um campo editavel de storage: a chave no arquivo, a descricao mostrada na
+// tela e como alcanca o valor.
+type StorageField struct {
+	Key string
+	Doc string
+	Ptr func(*Storage) *int
+}
+
+// EditableStorage e a unica lista dos campos de storage editaveis em tempo de execucao: o
+// Layer os aplica e o catalogo de internal/settings os descreve a partir dela. Campo novo =
+// uma linha aqui. storage.path e storage.enabled ficam de fora de proposito.
+var EditableStorage = []StorageField{
+	{"retention_days", "Dias de retenção dos alertas persistidos (0 = sem limite por idade).", func(s *Storage) *int { return &s.RetentionDays }},
+	{"max_alerts", "Máximo de alertas persistidos (0 = sem teto).", func(s *Storage) *int { return &s.MaxAlerts }},
+}
+
 // maxOverridesSize limita o arquivo de ajustes (entrada nao confiavel: vem do disco).
 const maxOverridesSize = 1 << 20
 
@@ -87,21 +112,23 @@ func isObject(v json.RawMessage) bool {
 func (o Overrides) JSON() ([]byte, error) {
 	det, sto := map[string]any{}, map[string]json.RawMessage{}
 	for _, path := range o.paths() {
-		parts := strings.Split(path, ".")
+		top, section, key, ok := pathParts(path)
 		switch {
-		case parts[0] == "storage" && len(parts) == 2:
-			sto[parts[1]] = o[path]
-		case parts[0] == "detection" && len(parts) == 2:
-			det[parts[1]] = o[path]
-		case parts[0] == "detection" && len(parts) == 3:
-			sec, _ := det[parts[1]].(map[string]json.RawMessage)
+		case !ok || (top != "storage" && top != "detection"):
+			return nil, fmt.Errorf("caminho de ajuste invalido: %q", path)
+		case top == "storage" && section == "":
+			sto[key] = o[path]
+		case top == "storage":
+			return nil, fmt.Errorf("caminho de ajuste invalido: %q", path)
+		case section == "":
+			det[key] = o[path]
+		default:
+			sec, _ := det[section].(map[string]json.RawMessage)
 			if sec == nil {
 				sec = map[string]json.RawMessage{}
-				det[parts[1]] = sec
+				det[section] = sec
 			}
-			sec[parts[2]] = o[path]
-		default:
-			return nil, fmt.Errorf("caminho de ajuste invalido: %q", path)
+			sec[key] = o[path]
 		}
 	}
 	out := map[string]any{}
@@ -112,6 +139,20 @@ func (o Overrides) JSON() ([]byte, error) {
 		out["storage"] = sto
 	}
 	return json.MarshalIndent(out, "", "  ") // json ordena as chaves de mapas
+}
+
+// pathParts divide um caminho de ajuste: "storage.max_alerts" -> (storage, "", max_alerts) e
+// "detection.beacon.ignore_ports" -> (detection, beacon, ignore_ports). ok e falso para outro
+// numero de partes.
+func pathParts(path string) (top, section, key string, ok bool) {
+	p := strings.Split(path, ".")
+	switch len(p) {
+	case 2:
+		return p[0], "", p[1], true
+	case 3:
+		return p[0], p[1], p[2], true
+	}
+	return "", "", "", false
 }
 
 func (o Overrides) paths() []string {
@@ -130,19 +171,20 @@ func Layer(base *Config, o Overrides) (*Config, error) {
 	det := fileDetection{raw: map[string]json.RawMessage{}}
 	secs := map[string]map[string]json.RawMessage{}
 	for _, path := range o.paths() {
-		parts := strings.Split(path, ".")
+		top, section, key, ok := pathParts(path)
+		isScalar := section == "" && (key == keyWindow || key == keyDisabled)
 		switch {
-		case len(parts) == 2 && parts[0] == "storage":
-			if err := c.applyStorageOverride(parts[1], o[path]); err != nil {
+		case ok && top == "storage" && section == "":
+			if err := c.applyStorageOverride(key, o[path]); err != nil {
 				return nil, fmt.Errorf("%s: %w", path, err)
 			}
-		case len(parts) == 2 && parts[0] == "detection" && (parts[1] == "window" || parts[1] == "disabled"):
-			det.raw[parts[1]] = o[path]
-		case len(parts) == 3 && parts[0] == "detection" && parts[1] != "window" && parts[1] != "disabled":
-			if secs[parts[1]] == nil {
-				secs[parts[1]] = map[string]json.RawMessage{}
+		case ok && top == "detection" && isScalar:
+			det.raw[key] = o[path]
+		case ok && top == "detection" && section != "" && section != keyWindow && section != keyDisabled:
+			if secs[section] == nil {
+				secs[section] = map[string]json.RawMessage{}
 			}
-			secs[parts[1]][parts[2]] = o[path]
+			secs[section][key] = o[path]
 		default:
 			return nil, fmt.Errorf("ajuste nao editavel pelo canal de controle: %q (edite o arquivo de configuracao)", path)
 		}
@@ -168,19 +210,16 @@ func Layer(base *Config, o Overrides) (*Config, error) {
 // applyStorageOverride aplica retention_days ou max_alerts; os demais campos de storage
 // (path, enabled) nao sao editaveis por ajuste.
 func (c *Config) applyStorageOverride(key string, raw json.RawMessage) error {
-	var dst *int
-	switch key {
-	case "retention_days":
-		dst = &c.Storage.RetentionDays
-	case "max_alerts":
-		dst = &c.Storage.MaxAlerts
-	default:
-		return fmt.Errorf("ajuste nao editavel pelo canal de controle: storage.%s (edite o arquivo de configuracao)", key)
+	for _, f := range EditableStorage {
+		if f.Key != key {
+			continue
+		}
+		var v int
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return fmt.Errorf("esperado um inteiro: %w", err)
+		}
+		*f.Ptr(&c.Storage) = v
+		return nil
 	}
-	var v int
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return fmt.Errorf("esperado um inteiro: %w", err)
-	}
-	*dst = v
-	return nil
+	return fmt.Errorf("ajuste nao editavel pelo canal de controle: storage.%s (edite o arquivo de configuracao)", key)
 }

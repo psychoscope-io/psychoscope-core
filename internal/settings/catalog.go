@@ -52,12 +52,11 @@ type entry struct {
 	doc   string
 }
 
-// Documentacao dos campos que nao vem de tags (os das regras tem a tag doc).
-var (
-	docWindow    = "Duração da janela deslizante do motor; precisa cobrir a maior janela de regra."
-	docDisabled  = "Regras desligadas, pelo nome (por exemplo net.beacon)."
-	docRetention = "Dias de retenção dos alertas persistidos (0 = sem limite por idade)."
-	docMaxAlerts = "Máximo de alertas persistidos (0 = sem teto)."
+// Documentacao dos campos de detection que nao sao de uma regra (os das regras tem a tag doc
+// e os de storage vem de config.EditableStorage).
+const (
+	docWindow   = "Duração da janela deslizante do motor; precisa cobrir a maior janela de regra."
+	docDisabled = "Regras desligadas, pelo nome (por exemplo net.beacon)."
 )
 
 var durationType = reflect.TypeOf(time.Duration(0))
@@ -75,12 +74,12 @@ func defaults() *config.Config {
 func describe(c *config.Config) ([]entry, error) {
 	var out []entry
 	win, _ := json.Marshal(formatDuration(c.Detection.Window))
-	out = append(out, entry{"detection.window", TypeDuration, string(win), docWindow})
+	out = append(out, entry{config.PathDetectionWindow, TypeDuration, string(win), docWindow})
 	dis, err := marshalList(c.Detection.Rules.Disabled)
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, entry{"detection.disabled", TypeTextList, dis, docDisabled})
+	out = append(out, entry{config.PathDetectionDisabled, TypeTextList, dis, docDisabled})
 
 	rc := c.Detection.Rules // copia: Sections devolve ponteiros para ela
 	sections := rc.Sections()
@@ -103,9 +102,10 @@ func describe(c *config.Config) ([]entry, error) {
 			out = append(out, e)
 		}
 	}
-	out = append(out,
-		entry{"storage.retention_days", TypeInt, fmt.Sprint(c.Storage.RetentionDays), docRetention},
-		entry{"storage.max_alerts", TypeInt, fmt.Sprint(c.Storage.MaxAlerts), docMaxAlerts})
+	st := c.Storage // copia: Ptr devolve ponteiros para ela
+	for _, f := range config.EditableStorage {
+		out = append(out, entry{"storage." + f.Key, TypeInt, fmt.Sprint(*f.Ptr(&st)), f.Doc})
+	}
 	return out, nil
 }
 

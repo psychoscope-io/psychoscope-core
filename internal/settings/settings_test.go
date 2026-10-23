@@ -91,7 +91,7 @@ func TestCatalogCoversEveryEditableFieldWithDocsTypesAndOrigins(t *testing.T) {
 		t.Fatal(err)
 	}
 	rc := config.DefaultDetection().Rules
-	want := 4 // detection.window, detection.disabled, storage.retention_days, storage.max_alerts
+	want := 2 + len(config.EditableStorage) // detection.window, detection.disabled e os de storage
 	for _, ptr := range rc.Sections() {
 		want += reflect.TypeOf(ptr).Elem().NumField()
 	}
@@ -400,5 +400,26 @@ func TestReadingDoesNotWaitForALiveApplyAndAppliesStaySerialized(t *testing.T) {
 	<-secondDone
 	if got := m.Effective().Detection.Rules.Scan.VerticalPorts; got != 41 {
 		t.Fatalf("o ultimo pedido vale: %d", got)
+	}
+}
+
+// O catalogo (o que a tela mostra) e o Layer (o que o Core aceita gravar) vem de lugares
+// diferentes; este teste garante que nunca divergem: todo campo do catalogo e aceito pelo
+// Layer com o proprio valor atual, e o contrario (campo fora do catalogo) e recusado.
+func TestEveryCatalogFieldIsAcceptedByLayer(t *testing.T) {
+	f := newFixture(t)
+	fields, err := f.m.Fields()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fld := range fields {
+		if _, err := config.Layer(f.base, config.Overrides{fld.Path: []byte(fld.Value)}); err != nil {
+			t.Errorf("%s esta no catalogo mas o Layer recusa o proprio valor atual %s: %v", fld.Path, fld.Value, err)
+		}
+	}
+	for _, path := range []string{"storage.path", "storage.enabled", "detection.queue_size", "detection.max_events", "modules.0.path"} {
+		if _, err := config.Layer(f.base, config.Overrides{path: []byte("1")}); err == nil {
+			t.Errorf("%s nao e editavel e o Layer deveria recusar", path)
+		}
 	}
 }
