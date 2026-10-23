@@ -65,6 +65,10 @@ dele. Ordem de precedência: padrão do Core < arquivo do administrador < ajuste
   O arquivo de ajustes é lido com chaves estritas: qualquer outra chave impede a partida, com uma mensagem que cita o arquivo.
 - **Aplicação ao vivo.** As regras e a janela do motor são trocadas sem perder os eventos retidos; os **cooldowns e o estado interno das regras
   (como as séries do beacon) recomeçam**, então um alerta já visto pode reaparecer uma vez. Os limites de retenção valem na hora (poda imediata).
+- **Listas são substituídas, não somadas.** Um campo de lista (como `ignore_destinations`) com ajuste **substitui** a lista do arquivo do
+  administrador, não se soma a ela. Ao ajustar (`i`, `:set`, `config set`), a lista que vale naquele momento, com os itens do arquivo, é copiada
+  para o ajuste; depois disso, mudar essa lista no arquivo do administrador não tem efeito até você restaurar o campo (`d`, `:set campo&`,
+  `config reset`), que volta a usar a lista do arquivo.
 - **Validação conjunta.** Um pedido vale por inteiro ou não vale: por exemplo, `detection.scan.window` maior que `detection.window` só passa
   junto com a janela do motor.
 

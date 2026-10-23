@@ -113,7 +113,7 @@ func detailLines(a *psychoscopev1.Alerta, w int) []string {
 	}
 	if field, value, ok := rules.Exception(a); ok {
 		out = append(out, "", headerStyle.Render("Ação"))
-		for _, l := range wrapText("tecla i: acrescenta "+value+" a "+field+" (só root; vale na hora)", w-2) {
+		for _, l := range wrapText("tecla i: acrescenta "+value+" a "+field+" (só root; vale na hora; a lista ajustada substitui a do arquivo do administrador)", w-2) {
 			out = append(out, "  "+l)
 		}
 	}

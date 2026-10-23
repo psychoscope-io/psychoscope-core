@@ -73,8 +73,12 @@ sudo psychoscope-cli metrics
 `sudo psychoscope-cli` (tela `:config`) e `sudo psychoscope-cli config set ...` gravam os ajustes em `/var/lib/psychoscope/overrides.json`
 (modo `0600`, dono `psychoscope`), por cima do arquivo do administrador, que nunca é alterado. Só o root escreve, e cada mudança fica no
 journal (`journalctl -u psychoscope | grep "configuracao alterada"`). Para **desfazer tudo**, remova o arquivo e reinicie o serviço
-(`sudo rm /var/lib/psychoscope/overrides.json && sudo systemctl restart psychoscope`) ou restaure campo a campo na tela. Entre no backup junto com
-`/etc/psychoscope/`. Se o arquivo ficar inválido (edição manual), o Core não parte e a mensagem diz qual arquivo corrigir ou remover.
+(`sudo rm /var/lib/psychoscope/overrides.json && sudo systemctl restart psychoscope`) ou restaure campo a campo na tela. Inclua-o no backup, junto com
+`/etc/psychoscope/`: sem ele, uma restauração perde as exceções que você criou pela tela. Se o arquivo ficar inválido (edição manual), o Core não parte e a mensagem diz qual arquivo corrigir ou remover.
+
+Um campo de lista com ajuste **substitui** a lista do arquivo do administrador (não se soma a ela): se você editar essa lista em
+`/etc/psychoscope/psychoscope.json` depois de ajustá-la pela TUI, a edição só vale quando o campo for restaurado (`d` na tela,
+`psychoscope-cli config reset <campo>`).
 
 ### Quem pode usar a CLI
 
