@@ -30,20 +30,57 @@ Instalação como serviço (systemd, usuário dedicado, privilégios mínimos): 
 - **Persistência** (`internal/store`): alertas gravados em SQLite (sem CGO, arquivo `0600`, WAL) por um gravador em lote fora do caminho
   quente; retenção por idade e por quantidade; na partida o histórico em memória é repovoado a partir do banco.
 - **Canal de controle** (`internal/ctl`, `control.proto`): `ctl.sock` com listar módulos, enviar comando, assinar alertas (com histórico),
+  ler e aplicar configuração (a escrita só para o root; veja [Configuração em tempo de execução](#configuração-em-tempo-de-execução)),
   consultar alertas persistidos (filtros de tempo, severidade, regra e módulo) e métricas.
 - **Métricas** (`internal/metrics`): contadores/medidores do motor, do armazenamento e de cada módulo; pela CLI/TUI e, opcionalmente, em
   `/metrics` no formato Prometheus (somente loopback por padrão, sem autenticação).
 - **CLI/TUI** (`cmd/psychoscope-cli`): sem argumentos abre a TUI (Bubbletea + Lipgloss) com painel de módulos, feed de alertas e linha de
   eventos/s, alertas e descartes. Teclas: `↑/↓` selecionar, `tab` alternar foco, `Enter` (no painel de alertas) abrir os detalhes do
-  alerta (todos os campos, descrição e contexto com quebra de linha, `↑/↓`/`PgUp`/`PgDn` rolam, `Esc`/`Enter`/`q` fecham), `p` pausar,
-  `r` retomar e `:` abrir a linha de comando. Sair e encerrar um módulo só existem como comandos, para não acontecerem por acidente:
+  alerta (todos os campos, descrição e contexto com quebra de linha, `↑/↓`/`PgUp`/`PgDn` rolam, `Esc`/`Enter`/`q`/`:q` fecham; `i` acrescenta a
+  exceção sugerida do alerta à configuração, veja abaixo), `p` pausar, `r` retomar e `:` abrir a linha de comando (`:config` abre a tela de
+  configurações). Sair e encerrar um módulo só existem como comandos, para não acontecerem por acidente:
   `:q` (ou `:quit`) + `Enter` fecha a visão atual, como no vim (no detalhe do alerta fecha só o detalhe; na tela principal sai da TUI),
   e `:stop` + `Enter` encerra o módulo selecionado (o rodapé mostra o alvo enquanto você digita). `p` pausa e `r` retoma o módulo selecionado
   (`r` também reinicia um módulo encerrado por `:stop`). `Tab` completa o comando e `Esc` cancela. `q`, `Esc` e `Ctrl+C` na tela principal só
   mostram a dica. **Mudança na v0.4.0:** `:sair`, `:pause` e `:resume` foram removidos (repetiam `q`/`:q`, `p` e `r`); os comandos seguem o vocabulário do vim, em inglês.
-  Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `alerts [--no-history] [-v]` (ao vivo),
+  Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `config [-v] [prefixo]` / `config set campo=valor ...` /
+  `config reset campo ...`, `alerts [--no-history] [-v]` (ao vivo),
   `alerts --history [-n 50] [--since 2h] [--min-severity alta] [--rule R] [--module M] [-v]` (persistido; `-v` mostra o contexto
   `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `--version`.
+
+## Configuração em tempo de execução
+
+Limiares, exceções e regras desligadas se ajustam sem editar JSON nem reiniciar o serviço, pela tela de configurações da TUI ou pela CLI.
+O arquivo do administrador (`/etc/psychoscope/psychoscope.json`) **nunca é tocado**: os ajustes ficam num arquivo próprio, `overrides.json`,
+no diretório de estado (`/var/lib/psychoscope/`, modo `0600`; `overrides_path` no arquivo de configuração escolhe outro caminho), por cima
+dele. Ordem de precedência: padrão do Core < arquivo do administrador < ajuste. "Restaurar" um campo remove o ajuste e volta ao valor do arquivo
+(ou ao padrão); sem nenhum ajuste, o arquivo é removido.
+
+- **Só o root escreve.** A decisão usa o UID que o kernel informa no canal de controle (`SO_PEERCRED`), nunca algo declarado pelo cliente;
+  os demais usuários permitidos no canal leem em modo somente leitura. Cada mudança vai para o log (`journalctl -u psychoscope`) com UID, PID,
+  campo, valor antes e valor depois (`configuracao alterada`).
+- **O que é editável:** `detection.window`, `detection.disabled`, todos os campos de cada regra (`detection.<regra>.<campo>`, com descrição na
+  tela) e `storage.retention_days` e `storage.max_alerts`. **Nunca** pelo canal: `modules` (caminho e argumentos de um módulo seriam execução de
+  código), sockets, `socket_mode`, `allowed_uids`, `metrics.listen`, `storage.path` e `detection.queue_size` e `max_events` (exigem reinício).
+  O arquivo de ajustes é lido com chaves estritas: qualquer outra chave impede a partida, com uma mensagem que cita o arquivo.
+- **Aplicação ao vivo.** As regras e a janela do motor são trocadas sem perder os eventos retidos; os **cooldowns e o estado interno das regras
+  (como as séries do beacon) recomeçam**, então um alerta já visto pode reaparecer uma vez. Os limites de retenção valem na hora (poda imediata).
+- **Validação conjunta.** Um pedido vale por inteiro ou não vale: por exemplo, `detection.scan.window` maior que `detection.window` só passa
+  junto com a janela do motor.
+
+**Tela de configurações (`:config`).** Lista os campos por seção com valor atual, padrão e origem (`padrão`, `arquivo` ou `ajuste`); sob a
+lista aparecem a descrição e o formato do campo selecionado. `Enter` edita o campo (listas separadas por vírgula, durações como `30s`) e
+`:set campo=valor` faz o mesmo; `d` ou `:set campo&` restauram ao valor base e `:set campo` mostra o valor (o `:set` leva a seleção ao campo;
+`Tab` completa o caminho). As alterações ficam num **rascunho** (marcado com `*` e contado no título) e só `:w` as envia, de uma vez.
+`:q` recusa fechar com alterações pendentes, `:q!` as descarta e `:wq` grava e fecha. Sem permissão de escrita, a tela é somente leitura.
+
+**Ação `i` no detalhe do alerta.** Para os alertas de `net.beacon` (o IP de destino ou o domínio), `net.bruteforce.auth` (a origem) e
+`net.dns.tunnel` (o domínio base), `i` acrescenta o valor à lista de exceções da regra (`beacon.ignore_destinations`, `beacon.ignore_domains`,
+`bruteforce.ignore_sources`, `tunnel.allowed_bases`), sem duplicar e sem perder o que já estava na lista. O detalhe mostra, na seção "Ação",
+o que a tecla fará antes de você apertar. Outras regras (como a varredura) não têm exceção sugerida.
+
+**CLI.** `psychoscope-cli config [-v] [prefixo]` lista; `config set campo=valor ...` ajusta (mostra antes e depois); `config reset campo ...`
+restaura. Exemplo: `sudo psychoscope-cli config set detection.beacon.ignore_destinations=149.154.160.0/20,2001:67c:4e8::/48`.
 
 ## Uso rápido (desenvolvimento)
 

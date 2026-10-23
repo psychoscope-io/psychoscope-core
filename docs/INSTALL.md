@@ -50,7 +50,7 @@ Seções opcionais (valores padrão entre parênteses):
 | `storage` | `enabled` (true), `path` (`/var/lib/psychoscope/alerts.db`), `retention_days` (30), `max_alerts` (100000) |
 | `metrics` | `listen` (desligado; ex.: `"127.0.0.1:9464"`), `allow_non_loopback` (false) |
 | `detection` | `window` (60s), `disabled` (lista de regras), e uma seção por regra: `scan`, `nxdomain`, `tunnel`, `dns_rate`, `tls`, `beacon`, `bruteforce`, `icmp_sweep` — veja o README para as chaves de cada uma |
-| raiz | `allowed_uids` (UIDs extras com acesso ao canal de controle), `socket_mode` (`0660` ou `0600`), `status_interval`, `log_level` |
+| raiz | `allowed_uids` (UIDs extras com acesso ao canal de controle), `socket_mode` (`0660` ou `0600`), `status_interval`, `log_level`, `overrides_path` (arquivo dos ajustes feitos pela TUI/CLI; padrão `/var/lib/psychoscope/overrides.json`) |
 
 Chaves desconhecidas são rejeitadas na partida com a lista das válidas.
 
@@ -67,6 +67,14 @@ sudo psychoscope-cli               # TUI (módulos, alertas ao vivo, p/r/x)
 sudo psychoscope-cli alerts --history --since 24h --min-severity media
 sudo psychoscope-cli metrics
 ```
+
+### Ajustes feitos pela TUI e pela CLI
+
+`sudo psychoscope-cli` (tela `:config`) e `sudo psychoscope-cli config set ...` gravam os ajustes em `/var/lib/psychoscope/overrides.json`
+(modo `0600`, dono `psychoscope`), por cima do arquivo do administrador, que nunca é alterado. Só o root escreve, e cada mudança fica no
+journal (`journalctl -u psychoscope | grep "configuracao alterada"`). Para **desfazer tudo**, remova o arquivo e reinicie o serviço
+(`sudo rm /var/lib/psychoscope/overrides.json && sudo systemctl restart psychoscope`) ou restaure campo a campo na tela. Entre no backup junto com
+`/etc/psychoscope/`. Se o arquivo ficar inválido (edição manual), o Core não parte e a mensagem diz qual arquivo corrigir ou remover.
 
 ### Quem pode usar a CLI
 
