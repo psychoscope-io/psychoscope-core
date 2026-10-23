@@ -47,6 +47,7 @@ type Engine struct {
 	in     chan *Event
 
 	cooldown map[cooldownKey]time.Time // fim da supressao, no tempo dos eventos
+	reconf   chan reconfig             // pedidos de Reconfigure, tratados dentro de Run
 
 	received, dropped, processed, alerts, suppressed, ruleErrors atomic.Uint64
 	windowLen                                                    atomic.Int64
@@ -68,8 +69,48 @@ func NewEngine(cfg EngineConfig, rules []Rule, pub Publisher) *Engine {
 	}
 	return &Engine{
 		rules: rules, window: NewWindow(cfg.Window, cfg.MaxEvents), pub: pub, log: cfg.Logger,
-		in: make(chan *Event, cfg.QueueSize), cooldown: map[cooldownKey]time.Time{},
+		in: make(chan *Event, cfg.QueueSize), cooldown: map[cooldownKey]time.Time{}, reconf: make(chan reconfig),
 	}
+}
+
+// reconfig e um pedido de troca de regras e de duracao da janela.
+type reconfig struct {
+	rules []Rule
+	span  time.Duration
+	done  chan struct{}
+}
+
+// Reconfigure troca as regras e a duracao da janela com o motor rodando. A janela mantem os
+// eventos retidos (so descarta o que sai da nova duracao); cooldowns e o estado interno das
+// regras (como as series do beacon) recomecam, porque as regras novas sao instancias novas.
+// Os eventos que ja estavam na fila sao avaliados antes, com as regras antigas. Bloqueia
+// ate o motor aplicar ou ate ctx terminar (motor parado ou travado).
+func (e *Engine) Reconfigure(ctx context.Context, rules []Rule, span time.Duration) error {
+	rc := reconfig{rules: rules, span: span, done: make(chan struct{})}
+	select {
+	case e.reconf <- rc:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-rc.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// reconfigure roda na goroutine do motor, unica dona de rules, window e cooldown.
+func (e *Engine) reconfigure(rc reconfig) {
+	for n := len(e.in); n > 0; n-- { // so esta goroutine le da fila: os n eventos estao la
+		e.process(<-e.in)
+	}
+	e.rules = rc.rules
+	e.window.SetSpan(rc.span)
+	e.windowLen.Store(int64(e.window.Len()))
+	e.cooldown = map[cooldownKey]time.Time{}
+	e.log.Info("motor reconfigurado", "regras", len(rc.rules), "janela", rc.span.String())
+	close(rc.done)
 }
 
 // Submit enfileira um evento de rede sem nunca bloquear (chamado na goroutine de leitura
@@ -110,6 +151,8 @@ func (e *Engine) Run(ctx context.Context) {
 			}
 		case ev := <-e.in:
 			e.process(ev)
+		case rc := <-e.reconf:
+			e.reconfigure(rc)
 		}
 	}
 }

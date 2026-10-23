@@ -275,3 +275,58 @@ func TestPersisterPrunesOnStartup(t *testing.T) {
 		t.Fatalf("retencao: %v", ids(got))
 	}
 }
+
+func TestPersisterSetLimitsPrunesRightAway(t *testing.T) {
+	s := open(t)
+	now := time.Now()
+	batch := []*psychoscopev1.Alerta{alert("velho", "r", 1, "m", now.Add(-48*time.Hour))}
+	for i := 0; i < 6; i++ {
+		batch = append(batch, alert(fmt.Sprintf("n%d", i), "r", 1, "m", now.Add(-time.Duration(i)*time.Minute)))
+	}
+	_ = s.Insert(context.Background(), batch)
+
+	// sem limites na partida e poda periodica de 1 h: nada e removido
+	p := NewPersister(s, alerts.NewBus(), PersisterConfig{PruneEvery: time.Hour})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+	count := func() uint64 { n, _ := s.Count(context.Background()); return n }
+	time.Sleep(100 * time.Millisecond)
+	if count() != 7 {
+		t.Fatalf("sem limites nada e podado: %d", count())
+	}
+
+	waitFor := func(what string, want uint64) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) && count() != want {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if got := count(); got != want {
+			t.Fatalf("%s: %d alertas, esperado %d", what, got, want)
+		}
+	}
+	p.SetLimits(24*time.Hour, 0) // a retencao nova vale ja, sem esperar a proxima poda
+	waitFor("retencao de 24 h", 6)
+	p.SetLimits(0, 3) // desliga a idade e passa a limitar a quantidade: ficam os 3 mais novos
+	waitFor("teto de 3", 3)
+	got, _, _ := s.Query(context.Background(), Filter{})
+	if want := []string{"n0", "n1", "n2"}; fmt.Sprint(ids(got)) != fmt.Sprint(want) {
+		t.Fatalf("devem ficar os mais novos: %v", ids(got))
+	}
+}
+
+// Corrida: SetLimits enquanto a poda periodica roda.
+func TestPersisterSetLimitsIsRaceFree(t *testing.T) {
+	s := open(t)
+	p := NewPersister(s, alerts.NewBus(), PersisterConfig{PruneEvery: time.Millisecond, FlushEvery: time.Millisecond})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
+	for i := 0; i < 200; i++ {
+		p.SetLimits(time.Duration(i)*time.Hour, i)
+	}
+	cancel()
+	<-done
+}

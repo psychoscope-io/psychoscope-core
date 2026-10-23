@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,11 @@ type Persister struct {
 	log *slog.Logger
 
 	dropped atomic.Uint64
+
+	mu        sync.Mutex    // protege retention e maxAlerts (SetLimits roda fora de Run)
+	retention time.Duration // 0 = nao remove por idade
+	maxAlerts int           // 0 = sem teto
+	pruneNow  chan struct{} // pede uma poda imediata (capacidade 1: pedidos se fundem)
 }
 
 // NewPersister cria o gravador (inicie com Run).
@@ -46,7 +52,20 @@ func NewPersister(st *Store, bus *alerts.Bus, cfg PersisterConfig) *Persister {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Persister{st: st, bus: bus, cfg: cfg, log: cfg.Logger}
+	return &Persister{st: st, bus: bus, cfg: cfg, log: cfg.Logger,
+		retention: cfg.Retention, maxAlerts: cfg.MaxAlerts, pruneNow: make(chan struct{}, 1)}
+}
+
+// SetLimits troca a retencao por idade e o teto de alertas (0 desliga cada limite) e pede uma
+// poda imediata, para que um limite menor valha ja, e nao so na proxima poda periodica.
+func (p *Persister) SetLimits(retention time.Duration, maxAlerts int) {
+	p.mu.Lock()
+	p.retention, p.maxAlerts = retention, maxAlerts
+	p.mu.Unlock()
+	select {
+	case p.pruneNow <- struct{}{}:
+	default: // ja ha uma poda pedida
+	}
 }
 
 // Dropped devolve quantos alertas nao foram gravados por a fila da assinatura estar cheia.
@@ -79,6 +98,8 @@ func (p *Persister) Run(ctx context.Context) {
 			batch = p.flush(batch)
 		case <-pruneTick.C:
 			p.prune()
+		case <-p.pruneNow:
+			p.prune()
 		case <-ctx.Done():
 			p.drain(sub, batch)
 			return
@@ -104,11 +125,14 @@ func (p *Persister) flush(batch []*psychoscopev1.Alerta) []*psychoscopev1.Alerta
 func (p *Persister) prune() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	p.mu.Lock()
+	retention, maxAlerts := p.retention, p.maxAlerts
+	p.mu.Unlock()
 	var cutoff time.Time
-	if p.cfg.Retention > 0 {
-		cutoff = time.Now().Add(-p.cfg.Retention)
+	if retention > 0 {
+		cutoff = time.Now().Add(-retention)
 	}
-	n, err := p.st.Prune(ctx, cutoff, p.cfg.MaxAlerts)
+	n, err := p.st.Prune(ctx, cutoff, maxAlerts)
 	switch {
 	case err != nil:
 		p.log.Error("falha ao podar alertas", "err", err)

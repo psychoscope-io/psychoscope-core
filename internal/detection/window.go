@@ -40,6 +40,13 @@ func (w *Window) Len() int { return len(w.q) - w.head }
 // Span devolve a duracao da janela.
 func (w *Window) Span() time.Duration { return w.span }
 
+// SetSpan troca a duracao da janela e descarta o que ficou fora dela. Os eventos retidos
+// continuam: as regras nao perdem o historico recente ao ser reconfiguradas.
+func (w *Window) SetSpan(span time.Duration) {
+	w.span = span
+	w.evict()
+}
+
 // FromSrc devolve, em ordem de chegada, os eventos retidos cuja origem e ip.
 // A fatia e somente leitura e so e valida ate o proximo Add.
 func (w *Window) FromSrc(ip string) []*Event { return view(w.bySrc[ip]) }
