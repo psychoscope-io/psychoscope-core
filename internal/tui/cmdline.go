@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -43,7 +42,7 @@ func commandNames() []string {
 }
 
 // cmdline e o texto digitado depois do ':'.
-type cmdline struct{ buf string }
+type cmdline struct{ lineEditor }
 
 // name devolve o primeiro termo digitado, sem espacos.
 func (c *cmdline) name() string {
@@ -88,29 +87,12 @@ func (m *Model) onKeyCmdline(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		m.cmdline = nil
 		return m, m.runCommand(c.buf)
-	case tea.KeyBackspace:
-		if r := []rune(c.buf); len(r) > 0 {
-			c.buf = string(r[:len(r)-1])
-		}
 	case tea.KeyTab:
 		c.complete()
-	case tea.KeySpace:
-		c.buf += " "
-	case tea.KeyRunes:
-		c.buf += printable(k.Runes)
+	default:
+		c.edit(k)
 	}
 	return m, nil
-}
-
-// printable descarta caracteres de controle (quebras de linha de texto colado, por exemplo).
-func printable(rs []rune) string {
-	var b strings.Builder
-	for _, r := range rs {
-		if unicode.IsPrint(r) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }
 
 // runCommand executa a linha digitada. Comando desconhecido nao faz nada alem de avisar.
