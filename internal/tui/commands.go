@@ -2,6 +2,10 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -84,6 +88,41 @@ func (m *Model) applyConfig(patch map[string]string, restore []string, closeAfte
 		defer cancel()
 		l, err := be.ApplyConfig(ctx, patch, restore)
 		return configAppliedMsg{list: l, err: err, closeAfter: closeAfter, changes: len(patch) + len(restore)}
+	}
+}
+
+// ignoreCmd acrescenta value a lista field da configuracao: le a configuracao atual (para nao
+// perder o que ja esta na lista), recusa em modo somente leitura e nao duplica.
+func (m *Model) ignoreCmd(field, value string) tea.Cmd {
+	be := m.be
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+		done := func(err error) tea.Msg { return ignoreDoneMsg{field: field, value: value, err: err} }
+		l, err := be.Config(ctx)
+		if err != nil {
+			return done(err)
+		}
+		if l.GetSomenteLeitura() {
+			return done(errors.New(readOnlyMsg))
+		}
+		var items []string
+		for _, f := range l.GetCampos() {
+			if f.Caminho == field {
+				if err := json.Unmarshal([]byte(f.ValorAtual), &items); err != nil {
+					return done(fmt.Errorf("%s: valor atual inesperado: %w", field, err))
+				}
+			}
+		}
+		if slices.Contains(items, value) {
+			return ignoreDoneMsg{field: field, value: value, already: true}
+		}
+		next, err := json.Marshal(append(items, value))
+		if err != nil {
+			return done(err)
+		}
+		_, err = be.ApplyConfig(ctx, map[string]string{field: string(next)}, nil)
+		return done(err)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -36,6 +37,8 @@ func (m *Model) onKeyDetail(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case ":":
 		m.cmdline = &cmdline{} // :q fecha o detalhe; :stop age no modulo selecionado
+	case "i":
+		return m, m.ignoreAlert()
 	case "up", "k":
 		m.detail.scroll--
 	case "down", "j":
@@ -104,16 +107,27 @@ func detailLines(a *psychoscopev1.Alerta, w int) []string {
 		out = append(out, "  "+l)
 	}
 
-	keys := contextKeys(a, hasEvent)
-	if len(keys) == 0 {
-		return out
+	if keys := contextKeys(a, hasEvent); len(keys) > 0 {
+		out = append(out, "", headerStyle.Render("Contexto"))
+		out = append(out, contextLines(a, keys, w)...)
 	}
-	out = append(out, "", headerStyle.Render("Contexto"))
+	if field, value, ok := rules.Exception(a); ok {
+		out = append(out, "", headerStyle.Render("Ação"))
+		for _, l := range wrapText("tecla i: acrescenta "+value+" a "+field+" (só root; vale na hora)", w-2) {
+			out = append(out, "  "+l)
+		}
+	}
+	return out
+}
+
+// contextLines desenha o contexto como tabela chave/valor, com os valores quebrados na largura.
+func contextLines(a *psychoscopev1.Alerta, keys []string, w int) []string {
 	keyW := 0
 	for _, k := range keys {
 		keyW = max(keyW, len([]rune(k)))
 	}
 	valW := max(w-keyW-4, 5)
+	var out []string
 	for _, k := range keys {
 		for i, l := range wrapText(a.Contexto[k], valW) {
 			label := ""
@@ -237,4 +251,24 @@ func splitSegments(s string) [][]rune {
 		segs = append(segs, cur)
 	}
 	return segs
+}
+
+// ignoreAlert (tecla i) acrescenta a excecao sugerida para o alerta aberto a lista de
+// configuracao da regra: o destino confiavel, o dominio conhecido. So o root grava.
+func (m *Model) ignoreAlert() tea.Cmd {
+	field, value, ok := rules.Exception(m.detail.a)
+	if !ok {
+		return m.setStatus("esta regra não tem exceção sugerida (ajuste o limiar em :config)", false)
+	}
+	return tea.Batch(m.ignoreCmd(field, value), m.setStatus("acrescentando "+value+"…", false))
+}
+
+func (m *Model) onIgnoreDone(msg ignoreDoneMsg) tea.Cmd {
+	switch {
+	case msg.err != nil:
+		return m.setStatus(msg.err.Error(), true)
+	case msg.already:
+		return m.setStatus(msg.value+" já está em "+msg.field, false)
+	}
+	return m.setStatus(msg.value+" acrescentado a "+msg.field+" (vale na hora; este alerta continua no histórico)", false)
 }

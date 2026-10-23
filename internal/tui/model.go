@@ -75,6 +75,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onConfig(msg)
 	case configAppliedMsg:
 		return m, m.onConfigApplied(msg)
+	case ignoreDoneMsg:
+		return m, m.onIgnoreDone(msg)
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {
 			m.status = ""

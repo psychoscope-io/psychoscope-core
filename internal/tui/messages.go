@@ -52,6 +52,12 @@ type (
 		list *psychoscopev1.ListaConfig
 		err  error
 	}
+	// ignoreDoneMsg e o resultado da tecla i (acrescentar uma excecao a uma lista).
+	ignoreDoneMsg struct {
+		field, value string
+		already      bool // o valor ja estava na lista: nada foi gravado
+		err          error
+	}
 	configAppliedMsg struct {
 		list       *psychoscopev1.ListaConfig
 		err        error
