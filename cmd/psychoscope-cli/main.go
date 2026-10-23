@@ -6,6 +6,7 @@
 //	psychoscope-cli [--ctl-socket S] alerts [--no-history] [-v] stream de alertas ao vivo (Ctrl+C sai)
 //	psychoscope-cli [--ctl-socket S] alerts --history [-v] ... consulta o historico persistido
 //	psychoscope-cli [--ctl-socket S] metrics               metricas do Core
+//	psychoscope-cli [--ctl-socket S] config [set|reset ...] configuracao editavel em tempo de execucao
 package main
 
 import (
@@ -35,6 +36,9 @@ const usage = `uso: psychoscope-cli [--ctl-socket S] [comando]
                                       consulta o historico persistido
                                       (-v mostra o contexto chave=valor de cada alerta)
   metrics                             metricas do Core
+  config [-v] [prefixo]               lista os campos de configuracao editaveis (valor, padrao, origem)
+  config set campo=valor [...]        ajusta campos (so root); listas separadas por virgula, duracoes como 30s
+  config reset campo [...]            volta ao valor do arquivo do administrador, ou ao padrao (so root)
   --version                           versao`
 
 var actions = map[string]psychoscopev1.ComandoControle_TipoAcao{
@@ -87,6 +91,8 @@ func run(ctx context.Context, cl *ctl.Client, args []string, out io.Writer) erro
 		return cmdAlerts(ctx, cl, args[1:], out)
 	case "metrics":
 		return cmdMetrics(ctx, cl, out)
+	case "config":
+		return cmdConfig(ctx, cl, args[1:], out)
 	}
 	return fmt.Errorf("subcomando desconhecido %q\n%s", args[0], usage)
 }
