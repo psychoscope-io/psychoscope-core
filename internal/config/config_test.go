@@ -317,3 +317,13 @@ func TestBeaconIgnoreDestinationsFromFile(t *testing.T) {
 		t.Fatalf("valor invalido deve ser recusado citando o campo e o valor: %v", err)
 	}
 }
+
+func TestLoadSetsTheOverridesPathInTheStateDir(t *testing.T) {
+	c, err := Load(nil, env(0, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(DefaultStateDir(env(0, nil)), "overrides.json"); c.OverridesPath != want {
+		t.Fatalf("OverridesPath=%q, esperado %q", c.OverridesPath, want)
+	}
+}

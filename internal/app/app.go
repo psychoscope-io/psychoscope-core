@@ -19,6 +19,7 @@ import (
 	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	"github.com/psychoscope-io/psychoscope-core/internal/ipc"
 	"github.com/psychoscope-io/psychoscope-core/internal/metrics"
+	"github.com/psychoscope-io/psychoscope-core/internal/settings"
 	"github.com/psychoscope-io/psychoscope-core/internal/store"
 	"github.com/psychoscope-io/psychoscope-core/internal/supervisor"
 	"github.com/psychoscope-io/psychoscope-core/internal/version"
@@ -27,10 +28,12 @@ import (
 
 // daemon agrupa os componentes construidos por Run, na ordem em que sao criados.
 type daemon struct {
-	cfg     *config.Config
+	cfg     *config.Config // efetiva: arquivo do administrador + ajustes
 	log     *slog.Logger
+	opts    options
 	started time.Time
 
+	settings  *settings.Manager // nulo sem OverridesPath
 	bus       *alerts.Bus
 	store     *store.Store // nulo com a persistencia desligada
 	persister *store.Persister
@@ -47,7 +50,17 @@ type daemon struct {
 // ENCERRAR), depois os servidores, o motor (que esvazia a fila), o gravador de
 // alertas (que faz a ultima gravacao) e por fim o banco.
 func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	d, err := build(ctx, cfg, log)
+	return run(ctx, cfg, log, options{})
+}
+
+// options ajusta a montagem do daemon; so os testes usam algo alem do padrao.
+type options struct {
+	// admin decide quem pode alterar a configuracao pelo canal de controle (nil = somente root).
+	admin func(uid uint32) bool
+}
+
+func run(ctx context.Context, cfg *config.Config, log *slog.Logger, opts options) error {
+	d, err := build(ctx, cfg, log, opts)
 	if err != nil {
 		return err
 	}
@@ -62,8 +75,8 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 // build cria os componentes sem abrir nenhum socket. Se falhar depois de abrir o
 // banco, fecha o banco antes de devolver o erro.
-func build(ctx context.Context, cfg *config.Config, log *slog.Logger) (*daemon, error) {
-	d := &daemon{cfg: cfg, log: log, started: time.Now(), bus: alerts.NewBus()}
+func build(ctx context.Context, cfg *config.Config, log *slog.Logger, opts options) (*daemon, error) {
+	d := &daemon{cfg: cfg, log: log, opts: opts, started: time.Now(), bus: alerts.NewBus()}
 	if err := d.assemble(ctx); err != nil {
 		d.closeStore()
 		return nil, err
@@ -72,6 +85,9 @@ func build(ctx context.Context, cfg *config.Config, log *slog.Logger) (*daemon, 
 }
 
 func (d *daemon) assemble(ctx context.Context) error {
+	if err := d.openSettings(); err != nil { // antes de tudo: o resto usa a configuracao efetiva
+		return err
+	}
 	if err := d.openStore(ctx); err != nil {
 		return err
 	}
@@ -145,7 +161,10 @@ func (d *daemon) buildServers(policy ipc.UIDPolicy) (err error) {
 	}
 	ctlCfg := ctl.Config{
 		Path: cfg.CtlSocketPath, Mode: cfg.SocketMode, Backend: d.sup, Alerts: d.bus,
-		UIDs: policy, Metrics: d.gather, Logger: d.log.With("componente", "ctl"),
+		UIDs: policy, Metrics: d.gather, Admin: d.opts.admin, Logger: d.log.With("componente", "ctl"),
+	}
+	if d.settings != nil {
+		ctlCfg.Settings = d.settings // so atribui quando ha gerenciador (evita interface nao-nula com ponteiro nulo)
 	}
 	if d.store != nil {
 		ctlCfg.Store = d.store // so atribui quando ha banco (evita interface nao-nula com ponteiro nulo)
@@ -187,7 +206,7 @@ func (d *daemon) logStarted() {
 		d.log.Warn("allow_unmanaged ativo: modulos nao lancados pelo supervisor serao aceitos (apenas checagem de UID)")
 	}
 	d.log.Info("psychoscope-core iniciado", "versao", version.Version, "regras", d.rules, "socket", d.cfg.SocketPath, "ctl", d.cfg.CtlSocketPath,
-		"modulos", len(d.cfg.Modules), "uid", os.Geteuid(), "persistencia", d.store != nil)
+		"modulos", len(d.cfg.Modules), "uid", os.Geteuid(), "persistencia", d.store != nil, "ajustes", d.overrideCount())
 }
 
 // serve inicia as goroutines, espera ctx terminar e encerra tudo na ordem certa.

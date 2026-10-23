@@ -34,6 +34,10 @@ type Config struct {
 	Detection      Detection
 	Storage        Storage
 	Metrics        Metrics
+	// OverridesPath e o arquivo de ajustes feitos pelo canal de controle (tela de
+	// configuracoes e CLI), no diretorio de estado. Vazio desliga a configuracao em tempo
+	// de execucao (os testes que montam Config a mao nao a usam).
+	OverridesPath string
 }
 
 // Load interpreta args (sem o nome do programa) e produz a configuracao validada.
@@ -57,6 +61,7 @@ func Load(args []string, e Env) (*Config, error) {
 		LogLevel:       firstNonEmpty(fl.logLevel, fc.LogLevel, "info"),
 		Storage:        loadStorage(fc.Storage, e),
 		Metrics:        Metrics{Listen: fc.Metrics.Listen, AllowNonLoopback: fc.Metrics.AllowNonLoopback},
+		OverridesPath:  filepath.Join(DefaultStateDir(e), "overrides.json"),
 	}
 	if err := c.loadScalars(fc); err != nil {
 		return nil, err

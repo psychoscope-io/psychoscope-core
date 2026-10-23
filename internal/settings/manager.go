@@ -77,6 +77,13 @@ func (m *Manager) Effective() *config.Config {
 	return m.cur
 }
 
+// OverrideCount devolve quantos campos tem ajuste ativo.
+func (m *Manager) OverrideCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.ov)
+}
+
 // OverridesPath e o arquivo onde os ajustes ficam gravados.
 func (m *Manager) OverridesPath() string { return m.path }
 
