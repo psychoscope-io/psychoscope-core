@@ -25,8 +25,9 @@ type Model struct {
 	streamOK bool
 
 	focus   focus
-	cmdline *cmdline // linha de comando (:) aberta, ou nil
-	detail  *detail  // detalhe de alerta aberto, ou nil
+	cmdline *cmdline       // linha de comando (:) aberta, ou nil
+	detail  *detail        // detalhe de alerta aberto, ou nil
+	cfg     *settingsState // tela de configuracoes aberta, ou nil
 
 	status    string
 	statusErr bool
@@ -70,6 +71,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onStreamClosed()
 	case commandDoneMsg:
 		return m, m.onCommandDone(msg)
+	case configMsg:
+		return m, m.onConfig(msg)
+	case configAppliedMsg:
+		return m, m.onConfigApplied(msg)
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {
 			m.status = ""
@@ -187,6 +192,9 @@ func (m *Model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.cmdline != nil {
 		return m.onKeyCmdline(k)
+	}
+	if m.cfg != nil {
+		return m.onKeySettings(k)
 	}
 	if m.detail != nil {
 		return m.onKeyDetail(k)

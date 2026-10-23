@@ -22,6 +22,10 @@ type Backend interface {
 	Command(ctx context.Context, module string, acao psychoscopev1.ComandoControle_TipoAcao) error
 	StreamAlerts(ctx context.Context) (Stream, error)
 	Metrics(ctx context.Context) ([]*psychoscopev1.Metrica, error)
+	// Config le os campos de configuracao editaveis; ApplyConfig grava ajustes (valores em
+	// JSON) e restauracoes, e devolve a configuracao atualizada. So o root escreve.
+	Config(ctx context.Context) (*psychoscopev1.ListaConfig, error)
+	ApplyConfig(ctx context.Context, ajustes map[string]string, restaurar []string) (*psychoscopev1.ListaConfig, error)
 }
 
 // ClientBackend adapta ctl.Client ao Backend.
@@ -37,6 +41,14 @@ func (b ClientBackend) Command(ctx context.Context, module string, acao psychosc
 
 func (b ClientBackend) Metrics(ctx context.Context) ([]*psychoscopev1.Metrica, error) {
 	return b.Client.Metrics(ctx)
+}
+
+func (b ClientBackend) Config(ctx context.Context) (*psychoscopev1.ListaConfig, error) {
+	return b.Client.Config(ctx)
+}
+
+func (b ClientBackend) ApplyConfig(ctx context.Context, ajustes map[string]string, restaurar []string) (*psychoscopev1.ListaConfig, error) {
+	return b.Client.ApplyConfig(ctx, ajustes, restaurar)
 }
 
 type clientStream struct{ s *ctl.AlertStream }

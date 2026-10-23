@@ -145,10 +145,10 @@ func TestStopWithoutModuleIsRejected(t *testing.T) {
 
 func TestUnknownCommandAndArgumentsAreRejected(t *testing.T) {
 	for _, tc := range []struct{ line, want string }{
-		{"foo", "comando desconhecido: foo (use :q, :q!, :quit, :stop)"},
+		{"foo", "comando desconhecido: foo (use :config, :q, :q!, :quit, :set, :stop, :w, :wq)"},
 		{"stop mod-net-sensor", "o comando stop não aceita argumentos"},
 		{"q agora", "o comando q não aceita argumentos"},
-		{"q! agora", "o comando q não aceita argumentos"},
+		{"q! agora", "o comando q! não aceita argumentos"},
 		// comandos removidos na v0.4.0: duplicavam as teclas p e r, ou eram apelido nao-vim
 		{"sair", "comando desconhecido: sair"},
 		{"pause", "comando desconhecido: pause"},
@@ -169,10 +169,13 @@ func TestUnknownCommandAndArgumentsAreRejected(t *testing.T) {
 
 func TestTabCompletion(t *testing.T) {
 	for _, tc := range []struct{ typed, want string }{
-		{"s", "stop"}, // unico candidato
+		{"s", "s"}, // "set" e "stop": o maior prefixo comum e o proprio "s"
 		{"st", "stop"},
+		{"se", "set"},
+		{"c", "config"},
 		{"qu", "quit"},
 		{"q", "q"}, // "q", "q!" e "quit": o maior prefixo comum e o proprio "q"
+		{"w", "w"}, // "w" e "wq"
 		{"zz", "zz"},
 	} {
 		m, _, _ := newTestModel(t)

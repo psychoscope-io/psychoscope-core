@@ -47,6 +47,17 @@ type (
 		err   error
 	}
 	clearStatusMsg struct{ seq int }
+	// configMsg traz a configuracao lida; configAppliedMsg, o resultado de :w ou :wq.
+	configMsg struct {
+		list *psychoscopev1.ListaConfig
+		err  error
+	}
+	configAppliedMsg struct {
+		list       *psychoscopev1.ListaConfig
+		err        error
+		closeAfter bool
+		changes    int // campos enviados (ajustes e restauracoes)
+	}
 )
 
 // Model e o estado da TUI (tea.Model).

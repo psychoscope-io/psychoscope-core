@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,43 @@ type fakeBackend struct {
 	stream  *fakeStream
 	metrics []*psychoscopev1.Metrica
 	metErr  error
+
+	cfg      *psychoscopev1.ListaConfig // configuracao devolvida por Config; ApplyConfig a atualiza
+	cfgErr   error
+	applyErr error
+	applies  []applyCall
+}
+
+// applyCall registra um ApplyConfig recebido.
+type applyCall struct {
+	patch   map[string]string
+	restore []string
+}
+
+func (f *fakeBackend) Config(context.Context) (*psychoscopev1.ListaConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.cfg, f.cfgErr
+}
+
+// ApplyConfig grava o pedido e reflete o resultado na configuracao: ajuste vira valor atual
+// com origem AJUSTE; restaurar volta ao padrao com origem PADRAO.
+func (f *fakeBackend) ApplyConfig(_ context.Context, patch map[string]string, restore []string) (*psychoscopev1.ListaConfig, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.applies = append(f.applies, applyCall{patch, restore})
+	if f.applyErr != nil {
+		return nil, f.applyErr
+	}
+	for _, c := range f.cfg.Campos {
+		if v, ok := patch[c.Caminho]; ok {
+			c.ValorAtual, c.Origem = v, psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE
+		}
+		if slices.Contains(restore, c.Caminho) {
+			c.ValorAtual, c.Origem = c.ValorPadrao, psychoscopev1.OrigemCampo_ORIGEM_CAMPO_PADRAO
+		}
+	}
+	return f.cfg, nil
 }
 
 func (f *fakeBackend) List(context.Context) ([]*psychoscopev1.ModuloInfo, error) {

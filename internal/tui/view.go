@@ -88,6 +88,9 @@ func (m *Model) View() string {
 
 	footer := m.footer(w)
 	bodyH := h - 2 // cabecalho + rodape
+	if m.cfg != nil {
+		return strings.Join([]string{header, m.settingsPanel(w, bodyH), footer}, "\n")
+	}
 	if m.detail != nil {
 		return strings.Join([]string{header, m.detailPanel(w, bodyH), footer}, "\n")
 	}
@@ -102,12 +105,16 @@ func (m *Model) footer(w int) string {
 	switch {
 	case m.cmdline != nil:
 		return fit(m.cmdlineFooter(), w)
+	case m.cfg != nil && m.cfg.edit != nil:
+		return m.settingsFooter(w) // a edicao em andamento tem prioridade; o erro de tipo aparece junto
 	case m.status != "":
 		st := okStyle
 		if m.statusErr {
 			st = errStyle
 		}
 		return fit(st.Render(m.status), w)
+	case m.cfg != nil:
+		return m.settingsFooter(w)
 	case m.detail != nil:
 		return fit(dimStyle.Render("↑/↓ rolar · PgUp/PgDn página · g/G início/fim · Esc, Enter, q ou :q fecham"), w)
 	}

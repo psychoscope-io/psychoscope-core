@@ -25,10 +25,14 @@ type commandFunc func(m *Model, args []string) tea.Cmd
 // vim (q e quit). Teclas diretas ficam para navegar e para acoes reversiveis (p, r); comando
 // com ':' e para o que sai de uma tela ou e destrutivo.
 var commands = map[string]commandFunc{
-	"q":    (*Model).cmdQuit,
-	"q!":   (*Model).cmdQuit,
-	"quit": (*Model).cmdQuit,
-	"stop": (*Model).cmdStop,
+	"q":      (*Model).cmdQuit,
+	"q!":     (*Model).cmdQuitForce,
+	"quit":   (*Model).cmdQuit,
+	"stop":   (*Model).cmdStop,
+	"config": (*Model).cmdConfig,
+	"set":    (*Model).cmdSet,
+	"w":      (*Model).cmdWrite,
+	"wq":     (*Model).cmdWriteQuit,
 }
 
 // commandNames lista os nomes dos comandos em ordem alfabetica (completude com Tab e ajuda).
@@ -88,7 +92,11 @@ func (m *Model) onKeyCmdline(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cmdline = nil
 		return m, m.runCommand(c.buf)
 	case tea.KeyTab:
-		c.complete()
+		if strings.ContainsAny(c.buf, " \t") {
+			m.completeSetPath(c) // argumento: so o caminho de campo depois de ":set "
+		} else {
+			c.complete()
+		}
 	default:
 		c.edit(k)
 	}
@@ -117,12 +125,21 @@ func (m *Model) argsError(name string) tea.Cmd {
 	return m.setStatus(fmt.Sprintf("o comando %s não aceita argumentos", name), true)
 }
 
-// cmdQuit fecha a visao atual: o detalhe do alerta, se aberto, ou a propria TUI (como o :q do vim).
-func (m *Model) cmdQuit(args []string) tea.Cmd {
+// cmdQuit fecha a visao atual, como o :q do vim: a tela de configuracoes (recusa com
+// alteracoes nao gravadas), o detalhe do alerta, ou a propria TUI.
+func (m *Model) cmdQuit(args []string) tea.Cmd { return m.quitView("q", args, false) }
+
+// cmdQuitForce e o :q!, que descarta alteracoes nao gravadas.
+func (m *Model) cmdQuitForce(args []string) tea.Cmd { return m.quitView("q!", args, true) }
+
+func (m *Model) quitView(name string, args []string, force bool) tea.Cmd {
 	if len(args) > 0 {
-		return m.argsError("q")
+		return m.argsError(name)
 	}
-	if m.detail != nil {
+	switch {
+	case m.cfg != nil:
+		return m.closeSettings(force)
+	case m.detail != nil:
 		m.detail = nil
 		return nil
 	}
@@ -133,6 +150,9 @@ func (m *Model) cmdQuit(args []string) tea.Cmd {
 func (m *Model) cmdStop(args []string) tea.Cmd {
 	if len(args) > 0 {
 		return m.argsError("stop")
+	}
+	if m.cfg != nil {
+		return m.setStatus("feche a tela de configurações (:q) para encerrar um módulo", true)
 	}
 	mod := m.selectedModule()
 	if mod == nil {

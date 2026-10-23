@@ -66,6 +66,27 @@ func (m *Model) send(module string, acao psychoscopev1.ComandoControle_TipoAcao,
 	}
 }
 
+func (m *Model) fetchConfig() tea.Cmd {
+	be := m.be
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		l, err := be.Config(ctx)
+		return configMsg{l, err}
+	}
+}
+
+// applyConfig envia o rascunho ao Core; closeAfter fecha a tela se der certo (:wq).
+func (m *Model) applyConfig(patch map[string]string, restore []string, closeAfter bool) tea.Cmd {
+	be := m.be
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+		l, err := be.ApplyConfig(ctx, patch, restore)
+		return configAppliedMsg{list: l, err: err, closeAfter: closeAfter, changes: len(patch) + len(restore)}
+	}
+}
+
 func (m *Model) setStatus(text string, isErr bool) tea.Cmd {
 	m.status, m.statusErr = text, isErr
 	m.statusSeq++
