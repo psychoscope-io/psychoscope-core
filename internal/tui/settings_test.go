@@ -541,3 +541,35 @@ func TestWriteQuitDoesNotDiscardEditsMadeDuringTheRequest(t *testing.T) {
 		t.Fatalf("segundo :wq: cfg=%v applies=%d", m.cfg, len(be.applies))
 	}
 }
+
+// View so desenha: chama-la (uma ou varias vezes, e com a selecao mexida por fora de Update)
+// nao pode alterar a rolagem. Quem a ajusta e o Update.
+func TestViewDoesNotChangeTheScrollAndUpdateKeepsTheSelectionVisible(t *testing.T) {
+	m, be := openCfg(t, false)
+	for i := 0; i < 60; i++ {
+		be.cfg.Campos = append(be.cfg.Campos, cfgField(fmt.Sprintf("detection.zz%02d.campo", i), tInt, "1", "1", oDef, "d"))
+	}
+	run(m, "config")
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 16})
+
+	m.cfg.sel = len(m.cfg.fields()) - 1 // selecao movida sem passar por Update
+	before := m.cfg.scroll
+	for i := 0; i < 3; i++ {
+		_ = m.View()
+	}
+	if m.cfg.scroll != before {
+		t.Fatalf("View alterou a rolagem: %d -> %d", before, m.cfg.scroll)
+	}
+
+	m.Update(key("g")) // uma mensagem de verdade volta a sincronizar
+	m.Update(key("G"))
+	if m.cfg.scroll == 0 || !strings.Contains(plain(m), "campo") {
+		t.Fatalf("Update mantem a selecao visivel: scroll=%d", m.cfg.scroll)
+	}
+	// redimensionar tambem sincroniza, sem tecla nenhuma
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	sel := m.cfg.selected()
+	if !strings.Contains(plain(m), keyOf(sel.Caminho)) {
+		t.Fatalf("apos redimensionar a selecao continua visivel:\n%s", plain(m))
+	}
+}

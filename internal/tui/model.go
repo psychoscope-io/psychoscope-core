@@ -50,8 +50,16 @@ func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.fetchModules(), m.fetchMetrics(), m.openStream(), m.tick())
 }
 
-// Update trata uma mensagem. Cada caso delega a um metodo pequeno.
+// Update trata uma mensagem e, depois dela, mantem a rolagem da tela de configuracoes
+// coerente com a selecao e o tamanho do terminal (View so desenha, sem alterar o estado).
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	m.syncSettingsScroll()
+	return model, cmd
+}
+
+// update despacha a mensagem. Cada caso delega a um metodo pequeno.
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height

@@ -59,6 +59,14 @@ func keyOf(path string) string {
 // da tela, a moldura e as duas linhas de descricao do campo selecionado).
 func (m *Model) settingsCapacity() int { return max(max(m.height, 12)-2-2-2, 1) }
 
+// syncSettingsScroll ajusta a rolagem da tela de configuracoes depois de cada mensagem.
+func (m *Model) syncSettingsScroll() {
+	if m.cfg == nil || m.cfg.list == nil {
+		return
+	}
+	m.cfg.ensureVisible(m.settingsRows(), m.settingsCapacity())
+}
+
 // ensureVisible ajusta a rolagem para que o campo selecionado (e o cabecalho da sua secao,
 // quando e o primeiro) fique na janela de capacity linhas.
 func (s *settingsState) ensureVisible(rows []settingsRow, capacity int) {
@@ -96,9 +104,9 @@ func (m *Model) settingsPanel(w, h int) string {
 
 	rows := m.settingsRows()
 	capacity := max(h-2-2, 1) // moldura e duas linhas de descricao
-	s.ensureVisible(rows, capacity)
+	start := clamp(s.scroll, 0, max(len(rows)-capacity, 0))
 	lines := make([]string, 0, h)
-	for i := s.scroll; i < len(rows) && len(lines) < capacity; i++ {
+	for i := start; i < len(rows) && len(lines) < capacity; i++ {
 		lines = append(lines, m.settingsRowText(rows[i]))
 	}
 	for len(lines) < capacity {
