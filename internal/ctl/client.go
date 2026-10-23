@@ -186,3 +186,25 @@ func (c *Client) Metrics(ctx context.Context) ([]*psychoscopev1.Metrica, error) 
 	}
 	return r.GetMetricas().GetMetricas(), nil
 }
+
+// Config le os campos de configuracao editaveis (valor atual, padrao, origem e descricao).
+func (c *Client) Config(ctx context.Context) (*psychoscopev1.ListaConfig, error) {
+	r, err := c.call(ctx, &psychoscopev1.RequisicaoControle{IdRequisicao: "config",
+		Pedido: &psychoscopev1.RequisicaoControle_LerConfig{LerConfig: &psychoscopev1.PedidoLerConfig{}}})
+	if err != nil {
+		return nil, err
+	}
+	return r.GetConfig(), nil
+}
+
+// ApplyConfig aplica ajustes (caminho -> valor JSON) e restaura campos ao valor base; so o
+// root consegue. Devolve a configuracao ja atualizada (com avisos, se houver).
+func (c *Client) ApplyConfig(ctx context.Context, ajustes map[string]string, restaurar []string) (*psychoscopev1.ListaConfig, error) {
+	r, err := c.call(ctx, &psychoscopev1.RequisicaoControle{IdRequisicao: "apply-config",
+		Pedido: &psychoscopev1.RequisicaoControle_AplicarConfig{AplicarConfig: &psychoscopev1.PedidoAplicarConfig{
+			Ajustes: ajustes, Restaurar: restaurar}}})
+	if err != nil {
+		return nil, err
+	}
+	return r.GetConfig(), nil
+}

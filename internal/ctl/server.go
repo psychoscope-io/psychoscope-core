@@ -44,7 +44,13 @@ type Config struct {
 	// responde com o historico em memoria do Bus.
 	Store AlertSource
 	// Metrics, se presente, atende PedidoMetricas; sem ele a lista vem vazia.
-	Metrics  func() []*psychoscopev1.Metrica
+	Metrics func() []*psychoscopev1.Metrica
+	// Settings, se presente, atende PedidoLerConfig e PedidoAplicarConfig; sem ele ambos
+	// respondem que a configuracao por este canal esta indisponivel.
+	Settings SettingsBackend
+	// Admin diz se o UID pode alterar a configuracao (padrao: somente o root). A leitura vale
+	// para qualquer UID ja permitido no canal.
+	Admin    func(uid uint32) bool
 	MaxConns int
 	Logger   *slog.Logger
 }
@@ -76,6 +82,9 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	if cfg.MaxConns <= 0 {
 		cfg.MaxConns = 16
+	}
+	if cfg.Admin == nil {
+		cfg.Admin = func(uid uint32) bool { return uid == 0 }
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -151,6 +160,7 @@ func (s *Server) Shutdown() {
 
 type clientConn struct {
 	srv  *Server
+	cred ipc.PeerCred // credenciais do kernel (SO_PEERCRED) de quem conectou
 	conn net.Conn
 	wmu  sync.Mutex
 	sub  *alerts.Subscription
@@ -186,7 +196,7 @@ func (s *Server) handle(conn *net.UnixConn) {
 		return
 	}
 
-	c := &clientConn{srv: s, conn: conn, done: make(chan struct{})}
+	c := &clientConn{srv: s, cred: cred, conn: conn, done: make(chan struct{})}
 	defer func() {
 		close(c.done)
 		if c.sub != nil {
@@ -231,6 +241,10 @@ func (c *clientConn) dispatch(req *psychoscopev1.RequisicaoControle) error {
 		return c.send(c.listAlerts(id, p.ListarAlertas))
 	case *psychoscopev1.RequisicaoControle_Metricas:
 		return c.send(c.metrics(id))
+	case *psychoscopev1.RequisicaoControle_LerConfig:
+		return c.send(c.readConfig(id))
+	case *psychoscopev1.RequisicaoControle_AplicarConfig:
+		return c.send(c.applyConfig(id, p.AplicarConfig))
 	default:
 		return c.send(fail(id, "pedido vazio ou desconhecido"))
 	}
