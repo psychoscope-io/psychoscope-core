@@ -83,8 +83,10 @@ type reconfig struct {
 // Reconfigure troca as regras e a duracao da janela com o motor rodando. A janela mantem os
 // eventos retidos (so descarta o que sai da nova duracao); cooldowns e o estado interno das
 // regras (como as series do beacon) recomecam, porque as regras novas sao instancias novas.
-// Os eventos que ja estavam na fila sao avaliados antes, com as regras antigas. Bloqueia
-// ate o motor aplicar ou ate ctx terminar (motor parado ou travado).
+// Os eventos que ja estavam na fila sao avaliados antes, com as regras antigas. ctx limita
+// so a entrega do pedido (motor parado ou travado): depois que o motor o aceita, a troca
+// sempre termina (esvaziar a fila e limitado), entao esperamos por ela. Devolver um erro de
+// contexto nesse ponto diria "nao aplicado" a quem ja teve o pedido aplicado.
 func (e *Engine) Reconfigure(ctx context.Context, rules []Rule, span time.Duration) error {
 	rc := reconfig{rules: rules, span: span, done: make(chan struct{})}
 	select {
@@ -92,12 +94,8 @@ func (e *Engine) Reconfigure(ctx context.Context, rules []Rule, span time.Durati
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	select {
-	case <-rc.done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	<-rc.done
+	return nil
 }
 
 // reconfigure roda na goroutine do motor, unica dona de rules, window e cooldown.

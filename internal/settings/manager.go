@@ -47,10 +47,14 @@ type Manager struct {
 	live Live
 	log  *slog.Logger
 
-	mu   sync.Mutex // serializa Apply: a mudanca e validada, gravada e aplicada por inteiro
-	base *config.Config
-	ov   config.Overrides
-	cur  *config.Config
+	// applyMu serializa Apply (validar, gravar e aplicar ao vivo por inteiro) e pode ficar
+	// preso por ate o prazo da aplicacao ao vivo; mu protege so o estado abaixo e e segurado
+	// por instantes, para que a leitura da configuracao nunca espere por uma aplicacao.
+	applyMu sync.Mutex
+	mu      sync.Mutex
+	base    *config.Config
+	ov      config.Overrides
+	cur     *config.Config
 }
 
 // New le o arquivo de ajustes (ausente = sem ajustes) e calcula a configuracao efetiva. Um
@@ -100,8 +104,9 @@ func (m *Manager) Fields() ([]Field, error) {
 // Se a gravacao der certo e a aplicacao ao vivo falhar, o ajuste fica salvo e o resultado traz
 // um aviso (vale na proxima partida). Toda mudanca de valor vai para o log de auditoria.
 func (m *Manager) Apply(ctx context.Context, patch map[string]string, restore []string, who Caller) (Result, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.applyMu.Lock()
+	defer m.applyMu.Unlock()
+	// Apply e o unico que escreve ov e cur (sob mu) e roda um de cada vez: ler aqui sem mu e seguro.
 
 	next, err := m.plan(patch, restore)
 	if err != nil {
@@ -121,7 +126,9 @@ func (m *Manager) Apply(ctx context.Context, patch map[string]string, restore []
 	if err := m.persist(next); err != nil {
 		return Result{}, fmt.Errorf("%w em %s: %w", ErrPersist, m.path, err)
 	}
+	m.mu.Lock()
 	m.ov, m.cur = next, eff
+	m.mu.Unlock()
 	for _, c := range changes {
 		m.log.Warn("configuracao alterada", "uid", who.UID, "pid", who.PID, "campo", c.Path, "antes", c.Old, "depois", c.New)
 	}

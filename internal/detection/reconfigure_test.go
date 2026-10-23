@@ -128,3 +128,30 @@ func TestReconfigureUnderLoadIsRaceFree(t *testing.T) {
 		t.Fatalf("todo evento aceito deve ser processado: %+v", s)
 	}
 }
+
+// Depois que o motor aceita o pedido, a troca termina e Reconfigure devolve sucesso, mesmo
+// que o prazo do ctx tenha passado enquanto o motor trabalhava: nao pode dizer "nao aplicado"
+// para uma troca que vai ser (e foi) aplicada.
+func TestReconfigureAfterAcceptedDoesNotReportTheContextDeadline(t *testing.T) {
+	e := NewEngine(EngineConfig{Window: time.Minute, QueueSize: 8}, nil, &recPub{})
+	applied := make(chan struct{})
+	go func() { // o "motor": aceita o pedido e demora mais que o prazo para aplicar
+		rc := <-e.reconf
+		time.Sleep(150 * time.Millisecond)
+		e.reconfigure(rc)
+		close(applied)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := e.Reconfigure(ctx, []Rule{countRule("r")}, 2*time.Minute); err != nil {
+		t.Fatalf("o pedido foi aceito e aplicado: nao pode devolver erro: %v", err)
+	}
+	select {
+	case <-applied:
+	default:
+		t.Fatal("Reconfigure deve devolver so depois da troca aplicada")
+	}
+	if e.window.Span() != 2*time.Minute || len(e.rules) != 1 {
+		t.Fatalf("troca aplicada: span=%v regras=%d", e.window.Span(), len(e.rules))
+	}
+}

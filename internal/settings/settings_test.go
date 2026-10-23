@@ -339,3 +339,66 @@ func TestPersistFailureIsMarkedSoCallersDoNotLeakThePath(t *testing.T) {
 		t.Fatal("sem gravar, nada e aplicado")
 	}
 }
+
+// blockingLive trava a aplicacao ao vivo ate ser liberada, para provar que ler a configuracao
+// nao espera por uma aplicacao em andamento.
+type blockingLive struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingLive) Apply(context.Context, *config.Config) error {
+	b.entered <- struct{}{}
+	<-b.release
+	return nil
+}
+
+func TestReadingDoesNotWaitForALiveApplyAndAppliesStaySerialized(t *testing.T) {
+	f := newFixture(t)
+	bl := &blockingLive{entered: make(chan struct{}, 2), release: make(chan struct{})}
+	m, err := New(f.base, f.path, bl, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDone := make(chan struct{})
+	go func() {
+		_, _ = m.Apply(context.Background(), map[string]string{"detection.scan.vertical_ports": "40"}, nil, root)
+		close(firstDone)
+	}()
+	<-bl.entered // a primeira aplicacao esta presa em Live.Apply
+
+	read := make(chan struct{})
+	go func() {
+		if _, err := m.Fields(); err != nil {
+			t.Error(err)
+		}
+		_ = m.Effective()
+		_ = m.OverrideCount()
+		close(read)
+	}()
+	select {
+	case <-read:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ler a configuracao nao pode esperar por uma aplicacao ao vivo em andamento")
+	}
+
+	// um segundo Apply espera o primeiro terminar (serializacao)
+	secondDone := make(chan struct{})
+	go func() {
+		_, _ = m.Apply(context.Background(), map[string]string{"detection.scan.vertical_ports": "41"}, nil, root)
+		close(secondDone)
+	}()
+	select {
+	case <-bl.entered:
+		t.Fatal("o segundo Apply nao pode entrar em Live.Apply enquanto o primeiro nao terminou")
+	case <-time.After(150 * time.Millisecond):
+	}
+	bl.release <- struct{}{}
+	<-firstDone
+	<-bl.entered // agora o segundo entra
+	bl.release <- struct{}{}
+	<-secondDone
+	if got := m.Effective().Detection.Rules.Scan.VerticalPorts; got != 41 {
+		t.Fatalf("o ultimo pedido vale: %d", got)
+	}
+}
