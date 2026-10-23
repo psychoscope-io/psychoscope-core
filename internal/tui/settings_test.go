@@ -87,10 +87,7 @@ func TestConfigCommandOpensTheScreenWithSectionsFieldsAndDescription(t *testing.
 	v := plain(m)
 	for _, want := range []string{"Configurações", "detection", "detection.beacon", "detection.scan", "storage",
 		"window", "ignore_destinations", "vertical_ports", "max_alerts", "1m", "10.0.0.0/8", "123", "15", "100000",
-		"padrão", "arquivo", "ajuste", "PADRAO" /* cabecalho de coluna nao existe: so as origens */, ":set campo=valor"} {
-		if want == "PADRAO" {
-			continue
-		}
+		"padrão", "arquivo", "ajuste", ":set campo=valor"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("tela sem %q:\n%s", want, v)
 		}
@@ -437,9 +434,9 @@ func TestSettingsScreenFitsEveryTerminalSize(t *testing.T) {
 		}
 		for _, size := range [][2]int{{40, 12}, {60, 20}, {80, 24}, {120, 40}, {200, 60}, {10, 5}} {
 			m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
-			for _, key := range []string{"G", "g"} { // pior caso: ao fim e ao inicio
+			for _, nav := range []string{"G", "g"} { // pior caso: ao fim e ao inicio
 				if !edit {
-					m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+					m.Update(key(nav))
 				}
 				lines := strings.Split(m.View(), "\n")
 				if len(lines) != max(size[1], 12) {
