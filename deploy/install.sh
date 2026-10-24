@@ -102,7 +102,8 @@ cat <<MSG
 
 Instalacao concluida${DESTDIR:+ em $DESTDIR}.
 Proximos passos:
-  1. edite $CONF/psychoscope.json (interface do sensor em "args", por exemplo ["-i", "eth0"])
+  1. edite $CONF/psychoscope.json (interface do sensor em "args", por exemplo ["-i", "eth0"];
+     veja os nomes com: mod-net-sensor --list-interfaces)
   2. sudo systemctl daemon-reload && sudo systemctl enable --now psychoscope
   3. sudo psychoscope-cli list        # ou: sudo psychoscope-cli (TUI)
 Veja docs/INSTALL.md para permissoes, metricas e solucao de problemas.

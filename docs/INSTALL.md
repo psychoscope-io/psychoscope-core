@@ -33,7 +33,14 @@ seria feito, `--prefix` para outro diretório e `--no-setcap` se preferir aplica
 
 ## 3. Configurar
 
-Edite `/etc/psychoscope/psychoscope.json`. O mínimo é a interface do sensor:
+Edite `/etc/psychoscope/psychoscope.json`. O mínimo é a interface do sensor. O exemplo usa `eth0`, que
+em muitas máquinas se chama `enp3s0`, `wlp2s0` etc.: veja os nomes reais e confira o ambiente (sem
+`sudo`, só para ler) antes de subir o serviço:
+
+```
+/usr/local/bin/mod-net-sensor --list-interfaces
+/usr/local/bin/mod-net-sensor --check -i <interface>
+```
 
 ```json
 {
@@ -134,6 +141,8 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
 | Sintoma | Causa provável |
 |---|---|
 | `nao foi possivel iniciar a captura ... Operation not permitted` no log do sensor | `setcap` ausente, ou `NoNewPrivileges=yes` na unit |
+| `nao foi possivel iniciar a captura ... No such device` / `a interface 'eth0' nao existe` | o nome da interface em `args` não existe nesta máquina: rode `mod-net-sensor --list-interfaces` e ajuste `["-i", "<nome>"]` |
+| o sensor sobe, mas o Core não mostra eventos | rode `mod-net-sensor --check -i <interface>`: ele confere permissão, filtro BPF e se o Core está escutando, e diz o que corrigir; `--print` mostra os eventos sem o Core |
 | `error while loading shared libraries: libpcap.so.0.8` | instale `libpcap0.8` |
 | `armazenamento de alertas em ...: ... (defina storage.enabled=false ...)` | o usuário `psychoscope` não consegue escrever em `storage.path`; use o padrão (`StateDirectory`) ou ajuste permissões |
 | `psychoscope-cli`: `permission denied` ou conexão encerrada sem resposta | UID não permitido: use `sudo` ou `allowed_uids` (e o grupo `psychoscope`) |
