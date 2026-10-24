@@ -111,12 +111,12 @@ func TextFromValue(f *psychoscopev1.CampoConfig, value string) string {
 }
 
 // DisplayValue mostra um valor JSON do contrato como se digitaria; lista vazia aparece como
-// [] para nao sumir numa tabela.
+// (vazia) para nao sumir numa tabela.
 func DisplayValue(f *psychoscopev1.CampoConfig, value string) string {
 	if t := TextFromValue(f, value); t != "" {
 		return t
 	}
-	return "[]"
+	return "(vazia)"
 }
 
 // OriginLabel e o nome, em portugues, da origem do valor de um campo.

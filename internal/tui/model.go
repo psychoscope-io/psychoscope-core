@@ -85,6 +85,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onConfigApplied(msg)
 	case ignoreDoneMsg:
 		return m, m.onIgnoreDone(msg)
+	case ignoreInfoMsg:
+		m.onIgnoreInfo(msg)
 	case clearStatusMsg:
 		if msg.seq == m.statusSeq {
 			m.status = ""
@@ -229,6 +231,7 @@ func (m *Model) onKeyMain(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.focus == focusAlerts && len(m.alerts) > 0 {
 			m.detail = &detail{a: m.alerts[m.alertSel]}
+			return m, m.fetchIgnoreInfo()
 		}
 	case "up", "k":
 		m.move(-1)

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -108,7 +109,7 @@ func (m *Model) alertsPanel(w, h int) string {
 			ts = a.Timestamp.AsTime().Local().Format(time.TimeOnly)
 		}
 		sev := sevStyle(a.Severidade).Render(fmt.Sprintf("%-7s", sevName(a.Severidade)))
-		row := fmt.Sprintf(" %s %s %-24s %s", ts, sev, trunc(a.Regra, 24), a.Descricao)
+		row := fmt.Sprintf(" %s %s %-*s %s", ts, sev, ruleColumn, trunc(rules.RuleLabel(a.Regra), ruleColumn), a.Descricao)
 		if i == m.alertSel && m.focus == focusAlerts {
 			row = selStyle.Render(ansi.Strip(row))
 		}
@@ -128,10 +129,13 @@ func contextLine(a *psychoscopev1.Alerta) string {
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
-		parts = append(parts, k+"="+a.Contexto[k])
+		parts = append(parts, rules.ContextLabel(k)+": "+a.Contexto[k])
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, " · ")
 }
+
+// ruleColumn e a largura da coluna com o nome da regra no feed (cabe o maior nome legivel).
+const ruleColumn = 28
 
 func trunc(s string, n int) string {
 	if len([]rune(s)) <= n {

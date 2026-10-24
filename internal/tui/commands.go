@@ -10,6 +10,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -91,38 +93,78 @@ func (m *Model) applyConfig(patch map[string]string, restore []string, closeAfte
 	}
 }
 
-// ignoreCmd acrescenta value a lista field da configuracao: le a configuracao atual (para nao
-// perder o que ja esta na lista), recusa em modo somente leitura e nao duplica.
-func (m *Model) ignoreCmd(field, value string) tea.Cmd {
+// ignoreCmd acrescenta value a lista field da configuracao (ou o remove, com remove): le a
+// configuracao atual (para nao perder o que ja esta na lista), recusa em modo somente leitura
+// e nao grava quando nada muda.
+func (m *Model) ignoreCmd(field, value string, remove bool) tea.Cmd {
 	be := m.be
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 		defer cancel()
-		done := func(err error) tea.Msg { return ignoreDoneMsg{field: field, value: value, err: err} }
+		res := ignoreDoneMsg{field: field, value: value, label: field, remove: remove}
 		l, err := be.Config(ctx)
 		if err != nil {
-			return done(err)
+			res.err = err
+			return res
+		}
+		if f := ctl.FindField(l, field); f != nil && f.Rotulo != "" {
+			res.label = f.Rotulo
 		}
 		if l.GetSomenteLeitura() {
-			return done(errors.New(readOnlyMsg))
+			res.err = errors.New(readOnlyMsg)
+			return res
 		}
-		var items []string
-		for _, f := range l.GetCampos() {
-			if f.Caminho == field {
-				if err := json.Unmarshal([]byte(f.ValorAtual), &items); err != nil {
-					return done(fmt.Errorf("%s: valor atual inesperado: %w", field, err))
-				}
-			}
-		}
-		if slices.Contains(items, value) {
-			return ignoreDoneMsg{field: field, value: value, already: true}
-		}
-		next, err := json.Marshal(append(items, value))
+		items, err := listItems(l, field)
 		if err != nil {
-			return done(err)
+			res.err = err
+			return res
 		}
-		_, err = be.ApplyConfig(ctx, map[string]string{field: string(next)}, nil)
-		return done(err)
+		if slices.Contains(items, value) == !remove { // i com o valor ja presente, u com ele ausente
+			res.noop = true
+			return res
+		}
+		if remove {
+			items = slices.DeleteFunc(slices.Clone(items), func(s string) bool { return s == value })
+		} else {
+			items = append(items, value)
+		}
+		next, err := json.Marshal(items)
+		if err != nil {
+			res.err = err
+			return res
+		}
+		_, res.err = be.ApplyConfig(ctx, map[string]string{field: string(next)}, nil)
+		return res
+	}
+}
+
+// listItems le a lista de texto field da configuracao (vazia, nunca nil, se nao houver itens).
+func listItems(l *psychoscopev1.ListaConfig, field string) ([]string, error) {
+	items := []string{}
+	if f := ctl.FindField(l, field); f != nil {
+		if err := json.Unmarshal([]byte(f.ValorAtual), &items); err != nil {
+			return nil, fmt.Errorf("%s: valor atual inesperado: %w", field, err)
+		}
+	}
+	return items, nil
+}
+
+// fetchIgnoreInfo le a configuracao para saber se o valor sugerido para o alerta aberto ja
+// esta ignorado; sem excecao sugerida, nao consulta nada.
+func (m *Model) fetchIgnoreInfo() tea.Cmd {
+	if m.detail == nil {
+		return nil
+	}
+	a := m.detail.a
+	if _, _, ok := rules.Exception(a); !ok {
+		return nil
+	}
+	be := m.be
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+		defer cancel()
+		l, err := be.Config(ctx)
+		return ignoreInfoMsg{a: a, list: l, err: err}
 	}
 }
 

@@ -87,7 +87,7 @@ func TestTextFromValueRoundTrips(t *testing.T) {
 
 func TestDisplayValueOriginLabelAndFindField(t *testing.T) {
 	lista := fld(psychoscopev1.TipoCampo_TIPO_CAMPO_LISTA_TEXTO)
-	if got := DisplayValue(lista, `[]`); got != "[]" {
+	if got := DisplayValue(lista, `[]`); got != "(vazia)" {
 		t.Errorf("lista vazia nao pode sumir da tabela: %q", got)
 	}
 	if got := DisplayValue(lista, `["a","b"]`); got != "a, b" {

@@ -86,7 +86,7 @@ func TestConfigSetAndReset(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"detection.scan.vertical_ports: 15 -> 30", "detection.window: 1m -> 2m",
-		"detection.beacon.ignore_ports: [] -> 123, 443", "detection.beacon.ignore_destinations: [] -> 149.154.160.0/20, 2001:67c:4e8::/48"} {
+		"detection.beacon.ignore_ports: (vazia) -> 123, 443", "detection.beacon.ignore_destinations: (vazia) -> 149.154.160.0/20, 2001:67c:4e8::/48"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("set sem %q:\n%s", want, out)
 		}

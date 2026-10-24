@@ -136,3 +136,29 @@ func TestExceptionFieldsExistInTheRuleConfig(t *testing.T) {
 		listField(t, &c, path)
 	}
 }
+
+func TestCoversUsesTheSameMatchingAsTheRules(t *testing.T) {
+	for name, tc := range map[string]struct {
+		field  string
+		items  []string
+		value  string
+		item   string
+		wantOK bool
+	}{
+		"IP exato":                  {FieldBeaconIgnoreDestinations, []string{"10.0.0.1", "1.2.3.4"}, "1.2.3.4", "1.2.3.4", true},
+		"IP dentro de um CIDR":      {FieldBeaconIgnoreDestinations, []string{"10.0.0.0/8"}, "10.9.9.9", "10.0.0.0/8", true},
+		"IP fora do CIDR":           {FieldBeaconIgnoreDestinations, []string{"10.0.0.0/8"}, "11.0.0.1", "", false},
+		"IPv6 dentro de um prefixo": {FieldBruteForceIgnoreSources, []string{"2001:db8::/32"}, "2001:db8::7", "2001:db8::/32", true},
+		"lista vazia":               {FieldBeaconIgnoreDestinations, nil, "1.2.3.4", "", false},
+		"subdominio coberto":        {FieldBeaconIgnoreDomains, []string{"example.com"}, "api.Example.com.", "example.com", true},
+		"outro dominio":             {FieldBeaconIgnoreDomains, []string{"example.com"}, "notexample.com", "", false},
+		"base exata":                {FieldTunnelAllowedBases, []string{"cdn.net"}, "cdn.net", "cdn.net", true},
+		"base nao cobre subdominio": {FieldTunnelAllowedBases, []string{"cdn.net"}, "a.cdn.net", "", false},
+		"item invalido e ignorado":  {FieldBeaconIgnoreDestinations, []string{"nao-e-ip"}, "1.2.3.4", "", false},
+	} {
+		item, ok := Covers(tc.field, tc.items, tc.value)
+		if item != tc.item || ok != tc.wantOK {
+			t.Errorf("%s: Covers = (%q, %v), esperado (%q, %v)", name, item, ok, tc.item, tc.wantOK)
+		}
+	}
+}

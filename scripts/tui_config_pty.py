@@ -69,7 +69,7 @@ while "PSYCHOSCOPE" not in ANSI.sub(b"", buf).decode("utf-8", "replace") and tim
 send(b":config\r", 1.0)
 s = screen()
 check("tela de configuracoes aberta, com secoes, campos, padrao e origem", all(x in s for x in
-      ["Configurações", "detection", "window", "padrão"]), s)
+      ["Configurações", "Motor de detecção", "Janela do motor", "padrão"]), s)
 check("root nao ve o aviso de somente leitura", "somente leitura" not in s, s)
 
 send(b":set detection.scan.vertical_ports=30\r")
@@ -80,11 +80,11 @@ send(b":q\r")
 s = screen()
 check(":q com alteracao pendente nao fecha a tela", "Configurações" in s and "não gravada" in s, s)
 
-# Enter edita o campo selecionado (o primeiro, detection.window)
+# Enter edita o campo selecionado (o primeiro, detection.window: "Janela do motor")
 send(b"g")
 send(b"\r")
 s = screen()
-check("Enter abre o editor do campo", "editando detection.beacon" in s or "editando detection.window" in s, s)
+check("Enter abre o editor do campo", "editando Janela do motor" in s, s)
 send(b"\x1b")  # Esc cancela a edicao
 s = screen()
 check("Esc cancela so a edicao", "Configurações" in s and "editando" not in s, s)
@@ -93,7 +93,7 @@ send(b":w\r", 1.2)
 send(b":set detection.scan.vertical_ports\r")  # :set sem valor leva a selecao ao campo
 s = screen()
 check("gravar aplica e limpa o rascunho", "não gravada" not in s and "ajuste" in s, s)
-check("o valor gravado aparece na linha do campo", re.search(r"vertical_ports\s+30\s+15\s+ajuste", s) is not None, s)
+check("o valor gravado aparece na linha do campo", re.search(r"Portas distintas \(vertical\)\s+30\s+15\s+ajuste", s) is not None, s)
 check("arquivo de ajustes com modo 0600", os.path.exists(overrides) and stat.S_IMODE(os.stat(overrides).st_mode) == 0o600)
 
 send(b":set detection.scan.vertical_ports&\r")

@@ -72,16 +72,24 @@ dele. Ordem de precedência: padrão do Core < arquivo do administrador < ajuste
 - **Validação conjunta.** Um pedido vale por inteiro ou não vale: por exemplo, `detection.scan.window` maior que `detection.window` só passa
   junto com a janela do motor.
 
-**Tela de configurações (`:config`).** Lista os campos por seção com valor atual, padrão e origem (`padrão`, `arquivo` ou `ajuste`); sob a
-lista aparecem a descrição e o formato do campo selecionado. `Enter` edita o campo (listas separadas por vírgula, durações como `30s`) e
+**Tela de configurações (`:config`).** Lista os campos por seção com valor atual, padrão e origem (`padrão`, `arquivo` ou `ajuste`). Campos e
+seções aparecem com nome legível (por exemplo "Destinos ignorados", em "Beacon (conexões periódicas)"); o identificador técnico, que é o que o
+arquivo de configuração, o `:set` e a CLI usam, fica na linha de descrição do campo selecionado (`chave: detection.beacon.ignore_destinations`)
+e ao lado do título da seção. Sob a lista aparecem a descrição e o formato do campo selecionado. `Enter` edita o campo (listas separadas por vírgula, durações como `30s`) e
 `:set campo=valor` faz o mesmo; `d` ou `:set campo&` restauram ao valor base e `:set campo` mostra o valor (o `:set` leva a seleção ao campo;
 `Tab` completa o caminho). As alterações ficam num **rascunho** (marcado com `*` e contado no título) e só `:w` as envia, de uma vez.
 `:q` recusa fechar com alterações pendentes, `:q!` as descarta e `:wq` grava e fecha. Sem permissão de escrita, a tela é somente leitura.
 
-**Ação `i` no detalhe do alerta.** Para os alertas de `net.beacon` (o IP de destino ou o domínio), `net.bruteforce.auth` (a origem) e
+**Ações `i` e `u` no detalhe do alerta.** Para os alertas de `net.beacon` (o IP de destino ou o domínio), `net.bruteforce.auth` (a origem) e
 `net.dns.tunnel` (o domínio base), `i` acrescenta o valor à lista de exceções da regra (`beacon.ignore_destinations`, `beacon.ignore_domains`,
-`bruteforce.ignore_sources`, `tunnel.allowed_bases`), sem duplicar e sem perder o que já estava na lista. O detalhe mostra, na seção "Ação",
-o que a tecla fará antes de você apertar. Outras regras (como a varredura) não têm exceção sugerida.
+`bruteforce.ignore_sources`, `tunnel.allowed_bases`), sem duplicar e sem perder o que já estava na lista, e `u` o remove da lista (a regra
+volta a monitorá-lo). O detalhe lê a lista atual e mostra, na seção "Ação", o estado e o que cada tecla fará: oferece `i` se o valor ainda não
+está ignorado, `u` se está, e, se um item da lista já o abrange (uma rede CIDR que contém o IP, um domínio pai), diz qual e manda editar a
+lista em `:config`, porque nem `i` nem `u` mudariam nada. Só o root grava. Outras regras (como a varredura) não têm exceção sugerida.
+
+**Nomes na interface.** A TUI mostra o nome legível das regras ("Túnel DNS", não `net.dns.tunnel`) e das chaves de contexto ("Domínio base",
+não `dominio_base`), com o identificador entre parênteses no detalhe do alerta. A CLI (`alerts`, `config`, `metrics`) mantém os
+identificadores, por ser a interface de scripts. Campo novo de regra exige a tag `label` além de `json` e `doc` (um teste cobra).
 
 **CLI.** `psychoscope-cli config [-v] [prefixo]` lista; `config set campo=valor ...` ajusta (mostra antes e depois); `config reset campo ...`
 restaura. Exemplo: `sudo psychoscope-cli config set detection.beacon.ignore_destinations=149.154.160.0/20,2001:67c:4e8::/48`.

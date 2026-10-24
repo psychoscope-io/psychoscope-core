@@ -65,16 +65,16 @@ func TestDetailShowsEveryField(t *testing.T) {
 	m.Update(key("enter"))
 	v := plain(m)
 	for _, want := range []string{
-		"Alerta · net.dns.nxdomain_burst",
-		"Regra", "net.dns.nxdomain_burst",
+		"Alerta · Rajada de NXDOMAIN",
+		"Regra", "Rajada de NXDOMAIN (net.dns.nxdomain_burst)",
 		"Severidade", "MEDIA",
 		"Detectado", "2026-10-20T22:03:56Z",
 		"Evento", "2026-10-20T22:03:55Z",
 		"Módulo", "mod-net-sensor",
 		"ID", "id-123",
 		"Descrição",
-		"Contexto", "cliente", "192.168.0.8",
-		"dominios_exemplo", "1.0.17.172.in-addr.arpa,", "1.0.21.172.in-addr.arpa",
+		"Contexto", "Cliente", "192.168.0.8",
+		"Domínios de exemplo", "1.0.17.172.in-addr.arpa,", "1.0.21.172.in-addr.arpa",
 		"Esc, Enter, q ou :q fecham",
 	} {
 		if !strings.Contains(v, want) {

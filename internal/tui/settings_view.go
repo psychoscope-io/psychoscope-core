@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -15,7 +16,7 @@ import (
 var draftStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 
 const (
-	colKey     = 24
+	colKey     = 28
 	colValue   = 28
 	colDefault = 22
 	colOrigin  = 8
@@ -53,6 +54,30 @@ func keyOf(path string) string {
 		return path[i+1:]
 	}
 	return path
+}
+
+// fieldLabel e o nome do campo para a pessoa; sem rotulo (Core mais antigo), a chave.
+func fieldLabel(f *psychoscopev1.CampoConfig) string {
+	if f.Rotulo != "" {
+		return f.Rotulo
+	}
+	return keyOf(f.Caminho)
+}
+
+// sectionTitle e o nome da secao para a pessoa: a regra (detection.beacon) ou o grupo
+// (detection, storage); o que nao tem nome volta pelo caminho.
+func sectionTitle(section string) string {
+	switch {
+	case section == "detection":
+		return "Motor de detecção"
+	case section == "storage":
+		return "Armazenamento de alertas"
+	case strings.HasPrefix(section, "detection."):
+		if rule, ok := rules.SectionRule(strings.TrimPrefix(section, "detection.")); ok {
+			return rules.RuleLabel(rule)
+		}
+	}
+	return section
 }
 
 // settingsCapacity e quantas linhas da lista cabem na moldura (descontando cabecalho e rodape
@@ -120,18 +145,18 @@ func (m *Model) settingsPanel(w, h int) string {
 func (m *Model) settingsRowText(r settingsRow) string {
 	s := m.cfg
 	if r.field < 0 {
-		return headerStyle.Render(" " + r.section)
+		return headerStyle.Render(" "+sectionTitle(r.section)) + dimStyle.Render("  "+r.section)
 	}
 	f := s.fields()[r.field]
 	value, drafted := m.settingsValue(f)
 	origin := ctl.OriginLabel(f.Origem)
-	plainRow := fmt.Sprintf("   %-*s %-*s %-*s %-*s", colKey, trunc(keyOf(f.Caminho), colKey),
+	plainRow := fmt.Sprintf("   %-*s %-*s %-*s %-*s", colKey, trunc(fieldLabel(f), colKey),
 		colValue, trunc(value, colValue), colDefault, trunc(ctl.DisplayValue(f, f.ValorPadrao), colDefault), colOrigin, origin)
 	if r.field == s.sel {
 		return selStyle.Render(plainRow)
 	}
 	if drafted {
-		return fmt.Sprintf("   %-*s %s %-*s %-*s", colKey, trunc(keyOf(f.Caminho), colKey),
+		return fmt.Sprintf("   %-*s %s %-*s %-*s", colKey, trunc(fieldLabel(f), colKey),
 			draftStyle.Render(fmt.Sprintf("%-*s", colValue, trunc(value, colValue))),
 			colDefault, trunc(ctl.DisplayValue(f, f.ValorPadrao), colDefault), colOrigin, origin)
 	}
@@ -156,7 +181,7 @@ func (m *Model) settingsDescription() []string {
 	if f == nil {
 		return []string{"", ""}
 	}
-	return []string{" " + f.Descricao, dimStyle.Render(" " + f.Caminho + " · " + typeHint(f.Tipo))}
+	return []string{" " + f.Descricao, dimStyle.Render(" chave: " + f.Caminho + " · " + typeHint(f.Tipo))}
 }
 
 func typeHint(t psychoscopev1.TipoCampo) string {
@@ -179,7 +204,7 @@ func typeHint(t psychoscopev1.TipoCampo) string {
 func (m *Model) settingsFooter(w int) string {
 	s := m.cfg
 	if s.edit != nil {
-		line := fmt.Sprintf("editando %s: %s█   ", s.edit.path, s.edit.buf)
+		line := fmt.Sprintf("editando %s: %s█   ", s.editLabel(), s.edit.buf)
 		if m.status != "" {
 			// o erro de tipo vem no lugar da ajuda, sem repetir o caminho que ja esta na linha
 			return fit(line+errStyle.Render(strings.TrimPrefix(m.status, s.edit.path+": ")), w)
@@ -190,4 +215,12 @@ func (m *Model) settingsFooter(w int) string {
 		return fit(dimStyle.Render("somente leitura · ↑/↓ navegar · :q fecha"), w)
 	}
 	return fit(dimStyle.Render("↑/↓ navegar · Enter edita · d restaura · :set campo=valor · :w grava · :q fecha"), w)
+}
+
+// editLabel e o nome do campo em edicao.
+func (s *settingsState) editLabel() string {
+	if f := s.find(s.edit.path); f != nil && f.Rotulo != "" {
+		return f.Rotulo
+	}
+	return s.edit.path
 }

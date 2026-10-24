@@ -52,3 +52,28 @@ func Exception(a *psychoscopev1.Alerta) (field, value string, ok bool) {
 	}
 	return "", "", false
 }
+
+// Covers diz se a lista de excecoes items do campo field ja faz a regra ignorar value, e qual
+// item o faz: o proprio valor ou um que o abrange (uma rede CIDR que contem o IP, um dominio
+// de que value e subdominio). Usa a mesma comparacao da regra: IPs e CIDRs nas listas de
+// destino e origem, nome exato ou sufixo em ignore_domains, nome exato nas demais.
+func Covers(field string, items []string, value string) (item string, ok bool) {
+	for _, it := range items {
+		if it == value {
+			return it, true
+		}
+	}
+	for _, it := range items {
+		switch field {
+		case FieldBeaconIgnoreDestinations, FieldBruteForceIgnoreSources:
+			if nets, err := parseSources([]string{it}); err == nil && containsIP(nets, value) {
+				return it, true
+			}
+		case FieldBeaconIgnoreDomains:
+			if hasDomainSuffix(value, normalizeDomains([]string{it})) {
+				return it, true
+			}
+		}
+	}
+	return "", false
+}

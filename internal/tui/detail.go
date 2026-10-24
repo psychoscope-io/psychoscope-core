@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"fmt"
 	"sort"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
 	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
@@ -22,10 +24,21 @@ const (
 	eventTimeKey = "evento_ts"
 )
 
-// detail guarda o alerta exibido (o ponteiro nao muda quando chegam alertas novos) e a rolagem.
+// detail guarda o alerta exibido (o ponteiro nao muda quando chegam alertas novos), a rolagem
+// e o que se sabe sobre a excecao sugerida para ele.
 type detail struct {
 	a      *psychoscopev1.Alerta
 	scroll int
+	ignore ignoreInfo
+}
+
+// ignoreInfo e o estado da lista de excecoes do alerta aberto, lido da configuracao.
+type ignoreInfo struct {
+	known     bool   // a configuracao foi lida; antes disso so se sabe o que a tecla i faz
+	label     string // nome da lista para a pessoa
+	exact     bool   // o proprio valor esta na lista (a tecla u o remove)
+	coveredBy string // outro item da lista que ja abrange o valor (rede CIDR, dominio pai)
+	readOnly  bool
 }
 
 func (m *Model) onKeyDetail(k tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -38,7 +51,9 @@ func (m *Model) onKeyDetail(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case ":":
 		m.cmdline = &cmdline{} // :q fecha o detalhe; :stop age no modulo selecionado
 	case "i":
-		return m, m.ignoreAlert()
+		return m, m.ignoreAlert(false)
+	case "u":
+		return m, m.ignoreAlert(true)
 	case "up", "k":
 		m.detail.scroll--
 	case "down", "j":
@@ -65,12 +80,12 @@ func (m *Model) detailVisible() int { return max(m.detailBodyHeight()-2, 1) }
 func (m *Model) detailWidth() int { return max(m.width, 40) }
 
 func (m *Model) detailMaxScroll() int {
-	return max(len(detailLines(m.detail.a, m.detailWidth()-4))-m.detailVisible(), 0)
+	return max(len(detailLines(m.detail.a, m.detailWidth()-4, m.detail.ignore))-m.detailVisible(), 0)
 }
 
 // detailPanel desenha a moldura com o alerta aberto, rolado ate d.scroll.
 func (m *Model) detailPanel(w, h int) string {
-	lines := detailLines(m.detail.a, w-4)
+	lines := detailLines(m.detail.a, w-4, m.detail.ignore)
 	visible := max(h-2, 1)
 	start := clamp(m.detail.scroll, 0, max(len(lines)-visible, 0))
 	end := min(start+visible, len(lines))
@@ -78,7 +93,7 @@ func (m *Model) detailPanel(w, h int) string {
 	for _, l := range lines[start:end] {
 		shown = append(shown, " "+l)
 	}
-	title := "Alerta · " + m.detail.a.Regra
+	title := "Alerta · " + rules.RuleLabel(m.detail.a.Regra)
 	if len(lines) > visible {
 		title += fmt.Sprintf(" · linhas %d-%d de %d", start+1, end, len(lines))
 	}
@@ -86,13 +101,13 @@ func (m *Model) detailPanel(w, h int) string {
 }
 
 // detailLines monta as linhas do detalhe para a largura w (area util, sem moldura).
-func detailLines(a *psychoscopev1.Alerta, w int) []string {
+func detailLines(a *psychoscopev1.Alerta, w int, ig ignoreInfo) []string {
 	w = max(w, 10)
 	valueW := max(w-detailLabelWidth, 5)
 	field := func(label, value string) []string { return labeled(label, wrapText(value, valueW)) }
 
 	var out []string
-	out = append(out, field("Regra", a.Regra)...)
+	out = append(out, field("Regra", ruleTitle(a.Regra))...)
 	out = append(out, labeled("Severidade", []string{sevStyle(a.Severidade).Render(sevName(a.Severidade))})...)
 	out = append(out, field("Detectado", detectedAt(a))...)
 	evento, hasEvent := eventTime(a)
@@ -113,7 +128,7 @@ func detailLines(a *psychoscopev1.Alerta, w int) []string {
 	}
 	if field, value, ok := rules.Exception(a); ok {
 		out = append(out, "", headerStyle.Render("Ação"))
-		for _, l := range wrapText("tecla i: acrescenta "+value+" a "+field+" (só root; vale na hora; a lista ajustada substitui a do arquivo do administrador)", w-2) {
+		for _, l := range wrapText(actionText(field, value, ig), w-2) {
 			out = append(out, "  "+l)
 		}
 	}
@@ -124,7 +139,7 @@ func detailLines(a *psychoscopev1.Alerta, w int) []string {
 func contextLines(a *psychoscopev1.Alerta, keys []string, w int) []string {
 	keyW := 0
 	for _, k := range keys {
-		keyW = max(keyW, len([]rune(k)))
+		keyW = max(keyW, len([]rune(rules.ContextLabel(k))))
 	}
 	valW := max(w-keyW-4, 5)
 	var out []string
@@ -132,7 +147,7 @@ func contextLines(a *psychoscopev1.Alerta, keys []string, w int) []string {
 		for i, l := range wrapText(a.Contexto[k], valW) {
 			label := ""
 			if i == 0 {
-				label = k
+				label = rules.ContextLabel(k)
 			}
 			out = append(out, fmt.Sprintf("  %-*s  %s", keyW, label, l))
 		}
@@ -151,6 +166,16 @@ func labeled(label string, lines []string) []string {
 		out = append(out, prefix+l)
 	}
 	return out
+}
+
+// ruleTitle e o nome legivel da regra com o identificador entre parenteses (o que a CLI e o
+// historico usam em --rule); regra sem nome legivel aparece so pelo identificador.
+func ruleTitle(name string) string {
+	l := rules.RuleLabel(name)
+	if l == name {
+		return name
+	}
+	return l + " (" + name + ")"
 }
 
 func detectedAt(a *psychoscopev1.Alerta) string {
@@ -253,22 +278,81 @@ func splitSegments(s string) [][]rune {
 	return segs
 }
 
-// ignoreAlert (tecla i) acrescenta a excecao sugerida para o alerta aberto a lista de
-// configuracao da regra: o destino confiavel, o dominio conhecido. So o root grava.
-func (m *Model) ignoreAlert() tea.Cmd {
+// actionText explica o que as teclas i e u fazem com o valor sugerido, conforme o estado da lista.
+func actionText(field, value string, ig ignoreInfo) string {
+	list := "«" + cmp.Or(ig.label, field) + "»"
+	if !ig.exact && ig.coveredBy != "" {
+		return value + " já é ignorado por «" + ig.coveredBy + "» em " + list + ". Para voltar a monitorar, edite a lista em :config."
+	}
+	var text string
+	if ig.exact {
+		text = value + " já está ignorado em " + list + ". Tecla u: voltar a monitorar, removendo-o da lista (vale na hora)."
+	} else {
+		text = "tecla i: ignorar " + value + ", acrescentando-o a " + list + " (vale na hora; a lista ajustada substitui a do arquivo do administrador)."
+	}
+	if ig.readOnly {
+		return text + " Somente leitura: só o root altera."
+	}
+	return text + " Só o root altera."
+}
+
+// onIgnoreInfo guarda o estado da lista de excecoes do alerta que ainda esta aberto.
+func (m *Model) onIgnoreInfo(msg ignoreInfoMsg) {
+	if m.detail == nil || m.detail.a != msg.a || msg.err != nil || msg.list == nil {
+		return // fechou, trocou de alerta ou o Core nao respondeu: fica o texto generico
+	}
+	field, value, ok := rules.Exception(msg.a)
+	if !ok {
+		return
+	}
+	ig := ignoreInfo{known: true, label: field, readOnly: msg.list.GetSomenteLeitura()}
+	if f := ctl.FindField(msg.list, field); f != nil && f.Rotulo != "" {
+		ig.label = f.Rotulo
+	}
+	if items, err := listItems(msg.list, field); err == nil {
+		if cover, ok := rules.Covers(field, items, value); ok {
+			ig.exact = cover == value
+			if !ig.exact {
+				ig.coveredBy = cover
+			}
+		}
+	}
+	m.detail.ignore = ig
+}
+
+// ignoreAlert (teclas i e u) acrescenta a excecao sugerida para o alerta aberto a lista de
+// configuracao da regra (o destino confiavel, o dominio conhecido) ou a remove (remove).
+// So o root grava.
+func (m *Model) ignoreAlert(remove bool) tea.Cmd {
 	field, value, ok := rules.Exception(m.detail.a)
 	if !ok {
 		return m.setStatus("esta regra não tem exceção sugerida (ajuste o limiar em :config)", false)
 	}
-	return tea.Batch(m.ignoreCmd(field, value), m.setStatus("acrescentando "+value+"…", false))
+	if ig := m.detail.ignore; ig.known && !ig.exact && ig.coveredBy != "" {
+		// acrescentar seria inocuo, e remover o valor nao desfaz o item que o abrange
+		return m.setStatus(value+" já é ignorado por «"+ig.coveredBy+"»: para mudar, edite a lista «"+ig.label+"» em :config", false)
+	}
+	doing := "acrescentando "
+	if remove {
+		doing = "removendo "
+	}
+	return tea.Batch(m.ignoreCmd(field, value, remove), m.setStatus(doing+value+"…", false))
 }
 
 func (m *Model) onIgnoreDone(msg ignoreDoneMsg) tea.Cmd {
+	list := "«" + msg.label + "»"
+	var status string
 	switch {
 	case msg.err != nil:
 		return m.setStatus(msg.err.Error(), true)
-	case msg.already:
-		return m.setStatus(msg.value+" já está em "+msg.field, false)
+	case msg.noop && msg.remove:
+		status = msg.value + " não está em " + list
+	case msg.noop:
+		status = msg.value + " já está em " + list
+	case msg.remove:
+		status = msg.value + " removido de " + list + ": volta a ser monitorado (vale na hora)"
+	default:
+		status = msg.value + " acrescentado a " + list + " (vale na hora; este alerta continua no histórico)"
 	}
-	return m.setStatus(msg.value+" acrescentado a "+msg.field+" (vale na hora; este alerta continua no histórico)", false)
+	return tea.Batch(m.setStatus(status, false), m.fetchIgnoreInfo())
 }

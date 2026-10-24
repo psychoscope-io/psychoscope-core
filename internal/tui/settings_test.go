@@ -10,11 +10,25 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/config"
+	"github.com/psychoscope-io/psychoscope-core/internal/settings"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
+// sampleLabels sao os nomes que o Core enviaria (tag label) para os campos de sampleConfig;
+// um campo fora da tabela chega sem rotulo, como de um Core mais antigo.
+var sampleLabels = map[string]string{
+	"detection.window":                     "Janela do motor",
+	"detection.beacon.ignore_destinations": "Destinos ignorados",
+	"detection.beacon.ignore_ports":        "Portas ignoradas",
+	"detection.scan.vertical_ports":        "Portas distintas (vertical)",
+	"detection.scan.window":                "Janela de observação",
+	"detection.bruteforce.ignore_sources":  "Origens ignoradas",
+	"detection.tunnel.allowed_bases":       "Domínios base permitidos",
+}
+
 func cfgField(path string, t psychoscopev1.TipoCampo, value, def string, o psychoscopev1.OrigemCampo, doc string) *psychoscopev1.CampoConfig {
-	return &psychoscopev1.CampoConfig{Caminho: path, Tipo: t, ValorAtual: value, ValorPadrao: def, Origem: o, Descricao: doc}
+	return &psychoscopev1.CampoConfig{Caminho: path, Tipo: t, ValorAtual: value, ValorPadrao: def, Origem: o, Descricao: doc, Rotulo: sampleLabels[path]}
 }
 
 const (
@@ -85,8 +99,8 @@ func selectField(t *testing.T, m *Model, path string) {
 func TestConfigCommandOpensTheScreenWithSectionsFieldsAndDescription(t *testing.T) {
 	m, _ := openCfg(t, false)
 	v := plain(m)
-	for _, want := range []string{"Configurações", "detection", "detection.beacon", "detection.scan", "storage",
-		"window", "ignore_destinations", "vertical_ports", "max_alerts", "1m", "10.0.0.0/8", "123", "15", "100000",
+	for _, want := range []string{"Configurações", "Motor de detecção", "detection.beacon", "detection.scan", "Armazenamento de alertas",
+		"Janela do motor", "Destinos ignorados", "Portas distintas (vertical)", "max_alerts", "1m", "10.0.0.0/8", "123", "15", "100000",
 		"padrão", "arquivo", "ajuste", ":set campo=valor"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("tela sem %q:\n%s", want, v)
@@ -137,7 +151,7 @@ func TestConfigEditWithEnterStagesADraft(t *testing.T) {
 	if m.cfg.edit == nil || m.cfg.edit.buf != "15" {
 		t.Fatalf("o editor abre com o valor atual: %+v", m.cfg.edit)
 	}
-	if !strings.Contains(plain(m), "editando detection.scan.vertical_ports: 15█") {
+	if !strings.Contains(plain(m), "editando Portas distintas (vertical): 15█") {
 		t.Fatalf("rodape de edicao:\n%s", plain(m))
 	}
 	m.Update(key("backspace"))
@@ -185,7 +199,7 @@ func TestConfigEditErrorsKeepEditingAndEscCancels(t *testing.T) {
 	if m.cfg.edit == nil || !strings.Contains(m.status, "numero inteiro") || !m.statusErr || len(m.cfg.draft) != 0 {
 		t.Fatalf("texto invalido nao vira rascunho e a edicao continua: status=%q", m.status)
 	}
-	if !strings.Contains(plain(m), "editando detection.scan.vertical_ports: 15x█") || !strings.Contains(plain(m), "esperado um numero inteiro") {
+	if !strings.Contains(plain(m), "editando Portas distintas (vertical): 15x█") || !strings.Contains(plain(m), "esperado um numero inteiro") {
 		t.Fatalf("o erro aparece junto da linha de edicao:\n%s", plain(m))
 	}
 	m.Update(key("esc"))
@@ -568,5 +582,59 @@ func TestViewDoesNotChangeTheScrollAndUpdateKeepsTheSelectionVisible(t *testing.
 	sel := m.cfg.selected()
 	if !strings.Contains(plain(m), keyOf(sel.Caminho)) {
 		t.Fatalf("apos redimensionar a selecao continua visivel:\n%s", plain(m))
+	}
+}
+
+func TestConfigListShowsReadableNamesAndKeepsTheKeyInTheDescription(t *testing.T) {
+	m, _ := openCfg(t, false)
+	v := plain(m)
+	for _, want := range []string{"Motor de detecção", "Armazenamento de alertas", "Beacon (conexões periódicas)",
+		"Destinos ignorados", "Portas ignoradas", "Origens ignoradas"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("a lista deveria mostrar %q:\n%s", want, v)
+		}
+	}
+	if strings.Contains(v, "ignore_destinations ") || strings.Contains(v, " ignore_ports ") {
+		t.Errorf("a coluna de nomes nao mostra a chave tecnica:\n%s", v)
+	}
+	selectField(t, m, "detection.beacon.ignore_destinations")
+	if v := plain(m); !strings.Contains(v, "chave: detection.beacon.ignore_destinations") {
+		t.Errorf("a descricao do campo selecionado traz a chave para o :set:\n%s", v)
+	}
+	// o texto vazio de uma lista nao e "[]"
+	selectField(t, m, "detection.beacon.ignore_domains")
+	if v := plain(m); !strings.Contains(v, "(vazia)") || strings.Contains(v, "[]") {
+		t.Errorf("lista vazia aparece como (vazia):\n%s", v)
+	}
+}
+
+func TestConfigListFallsBackToTheKeyWithoutLabel(t *testing.T) {
+	m, _ := openCfg(t, false)
+	// storage.max_alerts nao esta em sampleLabels: Core mais antigo, sem rotulo
+	if v := plain(m); !strings.Contains(v, "max_alerts") {
+		t.Errorf("sem rotulo, a lista mostra a chave:\n%s", v)
+	}
+	selectField(t, m, "storage.max_alerts")
+	m.Update(key("enter"))
+	if v := plain(m); !strings.Contains(v, "editando storage.max_alerts: 100000█") {
+		t.Errorf("sem rotulo, o rodape de edicao mostra o caminho:\n%s", v)
+	}
+}
+
+// O Core real descreve os campos pelo catalogo: toda secao dele precisa de titulo e todo campo
+// de rotulo, senao a tela volta a mostrar caminhos tecnicos.
+func TestEveryCatalogSectionHasATitleAndEveryFieldALabel(t *testing.T) {
+	cfg := &config.Config{Detection: config.DefaultDetection(), Storage: config.Storage{RetentionDays: 30, MaxAlerts: 100}}
+	fields, err := settings.Catalog(cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range fields {
+		if sec := sectionOf(f.Path); sectionTitle(sec) == sec {
+			t.Errorf("secao %q sem titulo legivel em sectionTitle", sec)
+		}
+		if f.Label == "" {
+			t.Errorf("campo %s sem rotulo", f.Path)
+		}
 	}
 }

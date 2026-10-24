@@ -259,7 +259,7 @@ func TestAlertsNewestFirstCappedAndSelectionStable(t *testing.T) {
 		t.Fatalf("ordem: %v", m.alerts)
 	}
 	v := plain(m)
-	if !strings.Contains(v, "Alertas (2)") || !strings.Contains(v, "net.dns.tunnel") || !strings.Contains(v, "ALTA") ||
+	if !strings.Contains(v, "Alertas (2)") || !strings.Contains(v, "Túnel DNS") || !strings.Contains(v, "ALTA") ||
 		strings.Index(v, "descricao a2") > strings.Index(v, "descricao a1") {
 		t.Fatalf("view:\n%s", v)
 	}
@@ -274,7 +274,7 @@ func TestAlertsNewestFirstCappedAndSelectionStable(t *testing.T) {
 	if m.alerts[m.alertSel].IdAlerta != "a1" {
 		t.Fatalf("selecao deve acompanhar o alerta a1, esta em %s", m.alerts[m.alertSel].IdAlerta)
 	}
-	if !strings.Contains(plain(m), "origem=10.0.0.66") {
+	if !strings.Contains(plain(m), "Origem: 10.0.0.66") {
 		t.Fatalf("detalhe do alerta selecionado ausente:\n%s", plain(m))
 	}
 

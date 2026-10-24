@@ -52,11 +52,19 @@ type (
 		list *psychoscopev1.ListaConfig
 		err  error
 	}
-	// ignoreDoneMsg e o resultado da tecla i (acrescentar uma excecao a uma lista).
+	// ignoreDoneMsg e o resultado das teclas i (acrescentar uma excecao a uma lista) e u
+	// (remove-la).
 	ignoreDoneMsg struct {
-		field, value string
-		already      bool // o valor ja estava na lista: nada foi gravado
-		err          error
+		field, value, label string // label: nome da lista para a pessoa (o caminho, sem rotulo)
+		remove              bool
+		noop                bool // ja estava (i) ou nao estava (u) na lista: nada foi gravado
+		err                 error
+	}
+	// ignoreInfoMsg traz a configuracao lida para o detalhe do alerta a: o estado da excecao.
+	ignoreInfoMsg struct {
+		a    *psychoscopev1.Alerta
+		list *psychoscopev1.ListaConfig
+		err  error
 	}
 	configAppliedMsg struct {
 		list       *psychoscopev1.ListaConfig
