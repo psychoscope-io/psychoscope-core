@@ -83,6 +83,9 @@ func moduleMetrics(in supervisor.Info) []*psychoscopev1.Metrica {
 			metrics.Gauge("psychoscope_module_memory_megabytes", "Memoria residente do modulo.", s.UsoMemoriaMb, l...),
 			metrics.Gauge("psychoscope_module_cpu_percent", "Uso de CPU do modulo (% de um nucleo).", s.UsoCpuPercent, l...),
 		)
+		for key, v := range s.Contadores {
+			ms = append(ms, metrics.Counter("psychoscope_module_counter_total", "Contadores do modulo, pela chave do contrato (zera ao reiniciar o modulo).", float64(v), "module", in.ID, "counter", key))
+		}
 	}
 	return ms
 }

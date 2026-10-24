@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -61,11 +62,25 @@ func (m *Model) modulesPanel(w, h int) string {
 			row = lipgloss.NewStyle().Bold(true).Render(row)
 		}
 		lines = append(lines, row)
-		if mod.UltimoErro != "" && i == m.selected {
-			lines = append(lines, errStyle.Render("   último erro: "+mod.UltimoErro))
+		if i == m.selected {
+			if l := lossLine(st); l != "" {
+				lines = append(lines, errStyle.Render("   "+l))
+			}
+			if mod.UltimoErro != "" {
+				lines = append(lines, errStyle.Render("   último erro: "+mod.UltimoErro))
+			}
 		}
 	}
 	return panel("Módulos", m.focus == focusModules, lines, w, h)
+}
+
+// lossLine resume as perdas do modulo ("Perdas no kernel: 12 · ..."); vazio se nao houve nenhuma.
+func lossLine(st *psychoscopev1.StatusModulo) string {
+	var parts []string
+	for _, c := range ctl.Losses(st) {
+		parts = append(parts, fmt.Sprintf("%s: %d", c.Label, c.Value))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m *Model) alertsPanel(w, h int) string {
