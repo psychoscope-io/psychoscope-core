@@ -213,6 +213,7 @@ func (e protocolError) Error() string { return "violacao de protocolo: " + e.msg
 
 func (s *Server) readLoop(sess *Session) error {
 	window := heartbeatMisses * s.cfg.StatusInterval
+	warnedCounters := false
 	for {
 		_ = sess.conn.SetReadDeadline(time.Now().Add(window))
 		m, err := ReadMessage(sess.conn, 0)
@@ -239,6 +240,10 @@ func (s *Server) readLoop(sess *Session) error {
 		case *psychoscopev1.MensagemIPC_Status:
 			if p.Status.GetIdModulo() != sess.ID {
 				return protocolError{fmt.Sprintf("status com id_modulo %q em sessao %q", p.Status.GetIdModulo(), sess.ID)}
+			}
+			if n := limitCounters(p.Status); n > 0 && !warnedCounters {
+				warnedCounters = true // uma vez por sessao: o status chega a cada poucos segundos
+				s.log.Warn("contadores do modulo descartados (o limite e 64 chaves de ate 64 caracteres em [a-z0-9._-])", "modulo", sess.ID, "descartados", n)
 			}
 			sess.touch(p.Status)
 			s.cfg.Handler.OnStatus(sess, p.Status)
