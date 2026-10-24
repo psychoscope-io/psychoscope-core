@@ -73,7 +73,7 @@ func (c *clientConn) configList(warnings []string) (*psychoscopev1.ListaConfig, 
 	for _, f := range fields {
 		lista.Campos = append(lista.Campos, &psychoscopev1.CampoConfig{
 			Caminho: f.Path, Tipo: fieldType(f.Type), ValorAtual: f.Value, ValorPadrao: f.Default,
-			Origem: fieldOrigin(f.Origin), Descricao: f.Doc,
+			Origem: fieldOrigin(f.Origin), Rotulo: f.Label, Descricao: f.Doc,
 		})
 	}
 	return lista, nil

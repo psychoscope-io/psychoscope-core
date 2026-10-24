@@ -41,7 +41,9 @@ type Field struct {
 	Value   string
 	Default string
 	Origin  Origin
-	Doc     string
+	// Label e o nome para exibir ao usuario; o Path continua sendo o identificador.
+	Label string
+	Doc   string
 }
 
 // entry e um campo descrito a partir de uma configuracao.
@@ -49,14 +51,17 @@ type entry struct {
 	path  string
 	typ   FieldType
 	value string
+	label string
 	doc   string
 }
 
 // Documentacao dos campos de detection que nao sao de uma regra (os das regras tem a tag doc
 // e os de storage vem de config.EditableStorage).
 const (
-	docWindow   = "Duração da janela deslizante do motor; precisa cobrir a maior janela de regra."
-	docDisabled = "Regras desligadas, pelo nome (por exemplo net.beacon)."
+	labelWindow   = "Janela do motor"
+	docWindow     = "Duração da janela deslizante do motor; precisa cobrir a maior janela de regra."
+	labelDisabled = "Regras desligadas"
+	docDisabled   = "Regras desligadas, pelo nome (por exemplo net.beacon)."
 )
 
 var durationType = reflect.TypeOf(time.Duration(0))
@@ -74,12 +79,12 @@ func defaults() *config.Config {
 func describe(c *config.Config) ([]entry, error) {
 	var out []entry
 	win, _ := json.Marshal(formatDuration(c.Detection.Window))
-	out = append(out, entry{config.PathDetectionWindow, TypeDuration, string(win), docWindow})
+	out = append(out, entry{config.PathDetectionWindow, TypeDuration, string(win), labelWindow, docWindow})
 	dis, err := marshalList(c.Detection.Rules.Disabled)
 	if err != nil {
 		return nil, err
 	}
-	out = append(out, entry{config.PathDetectionDisabled, TypeTextList, dis, docDisabled})
+	out = append(out, entry{config.PathDetectionDisabled, TypeTextList, dis, labelDisabled, docDisabled})
 
 	rc := c.Detection.Rules // copia: Sections devolve ponteiros para ela
 	sections := rc.Sections()
@@ -98,13 +103,14 @@ func describe(c *config.Config) ([]entry, error) {
 				return nil, fmt.Errorf("detection.%s.%s: %w", name, key, err)
 			}
 			e.path = "detection." + name + "." + key
+			e.label = sf.Tag.Get("label")
 			e.doc = sf.Tag.Get("doc")
 			out = append(out, e)
 		}
 	}
 	st := c.Storage // copia: Ptr devolve ponteiros para ela
 	for _, f := range config.EditableStorage {
-		out = append(out, entry{"storage." + f.Key, TypeInt, fmt.Sprint(*f.Ptr(&st)), f.Doc})
+		out = append(out, entry{"storage." + f.Key, TypeInt, fmt.Sprint(*f.Ptr(&st)), f.Label, f.Doc})
 	}
 	return out, nil
 }
@@ -163,7 +169,7 @@ func Catalog(effective *config.Config, ov config.Overrides) ([]Field, error) {
 	}
 	out := make([]Field, len(cur))
 	for i, e := range cur {
-		f := Field{Path: e.path, Type: e.typ, Value: e.value, Default: def[i].value, Doc: e.doc}
+		f := Field{Path: e.path, Type: e.typ, Value: e.value, Default: def[i].value, Label: e.label, Doc: e.doc}
 		switch _, overridden := ov[e.path]; {
 		case overridden:
 			f.Origin = OriginOverride

@@ -19,20 +19,21 @@ const (
 	PathDetectionDisabled = "detection." + keyDisabled
 )
 
-// StorageField e um campo editavel de storage: a chave no arquivo, a descricao mostrada na
-// tela e como alcanca o valor.
+// StorageField e um campo editavel de storage: a chave no arquivo, o nome e a descricao
+// mostrados na tela e como alcanca o valor.
 type StorageField struct {
-	Key string
-	Doc string
-	Ptr func(*Storage) *int
+	Key   string
+	Label string
+	Doc   string
+	Ptr   func(*Storage) *int
 }
 
 // EditableStorage e a unica lista dos campos de storage editaveis em tempo de execucao: o
 // Layer os aplica e o catalogo de internal/settings os descreve a partir dela. Campo novo =
 // uma linha aqui. storage.path e storage.enabled ficam de fora de proposito.
 var EditableStorage = []StorageField{
-	{"retention_days", "Dias de retenção dos alertas persistidos (0 = sem limite por idade).", func(s *Storage) *int { return &s.RetentionDays }},
-	{"max_alerts", "Máximo de alertas persistidos (0 = sem teto).", func(s *Storage) *int { return &s.MaxAlerts }},
+	{"retention_days", "Retenção (dias)", "Dias de retenção dos alertas persistidos (0 = sem limite por idade).", func(s *Storage) *int { return &s.RetentionDays }},
+	{"max_alerts", "Máx. de alertas guardados", "Máximo de alertas persistidos (0 = sem teto).", func(s *Storage) *int { return &s.MaxAlerts }},
 }
 
 // maxOverridesSize limita o arquivo de ajustes (entrada nao confiavel: vem do disco).

@@ -26,7 +26,7 @@ func (f *fakeSettings) Fields() ([]settings.Field, error) {
 	return []settings.Field{
 		{Path: "detection.scan.vertical_ports", Type: settings.TypeInt, Value: "15", Default: "15", Origin: settings.OriginDefault, Doc: "Portas."},
 		{Path: "detection.window", Type: settings.TypeDuration, Value: `"1m"`, Default: `"1m"`, Origin: settings.OriginFile, Doc: "Janela."},
-		{Path: "detection.beacon.ignore_ports", Type: settings.TypeIntList, Value: "[123]", Default: "[]", Origin: settings.OriginOverride, Doc: "Portas ignoradas."},
+		{Path: "detection.beacon.ignore_ports", Type: settings.TypeIntList, Value: "[123]", Default: "[]", Origin: settings.OriginOverride, Label: "Portas ignoradas", Doc: "Portas ignoradas."},
 	}, nil
 }
 
@@ -66,7 +66,7 @@ func TestReadConfigReturnsFieldsAndReadOnlyFlag(t *testing.T) {
 	}
 	f := l.Campos[2]
 	if f.Caminho != "detection.beacon.ignore_ports" || f.Tipo != psychoscopev1.TipoCampo_TIPO_CAMPO_LISTA_INTEIRO ||
-		f.ValorAtual != "[123]" || f.ValorPadrao != "[]" || f.Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE || f.Descricao == "" {
+		f.ValorAtual != "[123]" || f.ValorPadrao != "[]" || f.Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_AJUSTE || f.Descricao == "" || f.Rotulo != "Portas ignoradas" {
 		t.Fatalf("campo convertido: %+v", f)
 	}
 	if l.Campos[1].Tipo != psychoscopev1.TipoCampo_TIPO_CAMPO_DURACAO || l.Campos[1].Origem != psychoscopev1.OrigemCampo_ORIGEM_CAMPO_ARQUIVO ||

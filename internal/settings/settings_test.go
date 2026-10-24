@@ -104,7 +104,7 @@ func TestCatalogCoversEveryEditableFieldWithDocsTypesAndOrigins(t *testing.T) {
 			t.Errorf("caminho repetido: %s", x.Path)
 		}
 		seen[x.Path] = true
-		if x.Doc == "" || x.Type == 0 || x.Value == "" || x.Default == "" || x.Origin == 0 {
+		if x.Doc == "" || x.Label == "" || x.Type == 0 || x.Value == "" || x.Default == "" || x.Origin == 0 {
 			t.Errorf("campo incompleto: %+v", x)
 		}
 	}
@@ -123,6 +123,9 @@ func TestCatalogCoversEveryEditableFieldWithDocsTypesAndOrigins(t *testing.T) {
 		"detection.nxdomain.cooldown":     {TypeDuration, `"2m"`, `"2m"`, OriginDefault},
 	} {
 		got := f.field(t, path)
+		if got.Label == "" {
+			t.Errorf("%s sem nome para exibir", path)
+		}
 		if got.Type != want.typ || got.Value != want.value || got.Default != want.def || got.Origin != want.origin {
 			t.Errorf("%s: %+v, esperado %+v", path, got, want)
 		}

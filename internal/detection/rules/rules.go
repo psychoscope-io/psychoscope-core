@@ -28,82 +28,82 @@ const (
 
 // ScanConfig parametriza net.scan.syn.
 type ScanConfig struct {
-	Window          time.Duration `json:"window" doc:"Janela de observação das sondas SYN."`                                               // janela de observacao
-	VerticalPorts   int           `json:"vertical_ports" doc:"Portas distintas num mesmo destino que caracterizam varredura vertical."`    // portas distintas num mesmo destino => varredura vertical
-	HorizontalHosts int           `json:"horizontal_hosts" doc:"Destinos distintos na mesma porta que caracterizam varredura horizontal."` // destinos distintos na mesma porta => varredura horizontal
-	Cooldown        time.Duration `json:"cooldown" doc:"Tempo sem repetir o alerta para a mesma origem."`
-	MaxScan         int           `json:"max_scan" doc:"Máximo de eventos da origem examinados por avaliação (limita o custo)."` // maximo de eventos da origem examinados por avaliacao
+	Window          time.Duration `json:"window" label:"Janela de observação" doc:"Janela de observação das sondas SYN."`                                                      // janela de observacao
+	VerticalPorts   int           `json:"vertical_ports" label:"Portas distintas (vertical)" doc:"Portas distintas num mesmo destino que caracterizam varredura vertical."`    // portas distintas num mesmo destino => varredura vertical
+	HorizontalHosts int           `json:"horizontal_hosts" label:"Destinos distintos (horiz.)" doc:"Destinos distintos na mesma porta que caracterizam varredura horizontal."` // destinos distintos na mesma porta => varredura horizontal
+	Cooldown        time.Duration `json:"cooldown" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para a mesma origem."`
+	MaxScan         int           `json:"max_scan" label:"Máx. de eventos examinados" doc:"Máximo de eventos da origem examinados por avaliação (limita o custo)."` // maximo de eventos da origem examinados por avaliacao
 }
 
 // NXDomainConfig parametriza net.dns.nxdomain_burst.
 type NXDomainConfig struct {
-	Window       time.Duration `json:"window" doc:"Janela em que as respostas NXDOMAIN são contadas."`
-	MinResponses int           `json:"min_responses" doc:"Respostas NXDOMAIN ao mesmo cliente para alertar."`     // respostas NXDOMAIN ao mesmo cliente
-	MinDistinct  int           `json:"min_distinct" doc:"Domínios distintos entre essas respostas para alertar."` // dominios distintos entre elas
-	Cooldown     time.Duration `json:"cooldown" doc:"Tempo sem repetir o alerta para o mesmo cliente."`
+	Window       time.Duration `json:"window" label:"Janela de contagem" doc:"Janela em que as respostas NXDOMAIN são contadas."`
+	MinResponses int           `json:"min_responses" label:"Respostas NXDOMAIN mínimas" doc:"Respostas NXDOMAIN ao mesmo cliente para alertar."`     // respostas NXDOMAIN ao mesmo cliente
+	MinDistinct  int           `json:"min_distinct" label:"Domínios distintos mínimos" doc:"Domínios distintos entre essas respostas para alertar."` // dominios distintos entre elas
+	Cooldown     time.Duration `json:"cooldown" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para o mesmo cliente."`
 	// IgnoreSuffixes: nomes que nao entram na contagem (o proprio dominio e seus subdominios).
 	// DNS reverso de redes privadas (varias redes Docker, por exemplo) gera rajadas de
 	// NXDOMAIN legitimas; DGA usa nomes diretos. Lista vazia conta todos.
-	IgnoreSuffixes []string `json:"ignore_suffixes" doc:"Nomes que não entram na contagem (o domínio e seus subdomínios), como DNS reverso (in-addr.arpa). Lista vazia conta todos."`
+	IgnoreSuffixes []string `json:"ignore_suffixes" label:"Sufixos ignorados" doc:"Nomes que não entram na contagem (o domínio e seus subdomínios), como DNS reverso (in-addr.arpa). Lista vazia conta todos."`
 }
 
 // TunnelConfig parametriza net.dns.tunnel.
 type TunnelConfig struct {
-	Window       time.Duration `json:"window" doc:"Janela de observação das consultas."`
-	MinQueries   int           `json:"min_queries" doc:"Consultas suspeitas distintas ao mesmo domínio base para alertar."`            // consultas suspeitas distintas ao mesmo dominio base
-	MinLabelLen  int           `json:"min_label_len" doc:"Tamanho mínimo do rótulo (subdomínio) para ser considerado suspeito."`       // rotulo (subdominio) com pelo menos este tamanho e suspeito...
-	MinEntropy   float64       `json:"min_entropy" doc:"Entropia de Shannon mínima (bits por caractere) do rótulo para ser suspeito."` // ...se a entropia de Shannon (bits/caractere) for ao menos esta
-	AllowedBases []string      `json:"allowed_bases" doc:"Domínios base isentos (CDNs e serviços legítimos com subdomínios longos)."`
-	Cooldown     time.Duration `json:"cooldown" doc:"Tempo sem repetir o alerta para o mesmo cliente e domínio base."`
+	Window       time.Duration `json:"window" label:"Janela de observação" doc:"Janela de observação das consultas."`
+	MinQueries   int           `json:"min_queries" label:"Consultas suspeitas mínimas" doc:"Consultas suspeitas distintas ao mesmo domínio base para alertar."`          // consultas suspeitas distintas ao mesmo dominio base
+	MinLabelLen  int           `json:"min_label_len" label:"Tamanho mínimo do rótulo" doc:"Tamanho mínimo do rótulo (subdomínio) para ser considerado suspeito."`        // rotulo (subdominio) com pelo menos este tamanho e suspeito...
+	MinEntropy   float64       `json:"min_entropy" label:"Entropia mínima do rótulo" doc:"Entropia de Shannon mínima (bits por caractere) do rótulo para ser suspeito."` // ...se a entropia de Shannon (bits/caractere) for ao menos esta
+	AllowedBases []string      `json:"allowed_bases" label:"Domínios base permitidos" doc:"Domínios base isentos (CDNs e serviços legítimos com subdomínios longos)."`
+	Cooldown     time.Duration `json:"cooldown" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para o mesmo cliente e domínio base."`
 }
 
 // DNSRateConfig parametriza net.dns.rate (pico de consultas DNS por cliente).
 type DNSRateConfig struct {
-	Window     time.Duration `json:"window" doc:"Janela de contagem das consultas."`
-	MinQueries int           `json:"min_queries" doc:"Consultas de um cliente na janela para alertar."`
-	Cooldown   time.Duration `json:"cooldown" doc:"Tempo sem repetir o alerta para o mesmo cliente."`
+	Window     time.Duration `json:"window" label:"Janela de contagem" doc:"Janela de contagem das consultas."`
+	MinQueries int           `json:"min_queries" label:"Consultas mínimas" doc:"Consultas de um cliente na janela para alertar."`
+	Cooldown   time.Duration `json:"cooldown" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para o mesmo cliente."`
 }
 
 // TLSConfig parametriza net.tls.suspicious.
 type TLSConfig struct {
-	Cooldown         time.Duration `json:"cooldown" doc:"Tempo sem repetir o alerta por cliente e motivo."` // por (cliente, motivo)
-	MissingSNIMin    int           `json:"missing_sni_min" doc:"ClientHellos sem SNI na janela para alertar."`
-	MissingSNIWindow time.Duration `json:"missing_sni_window" doc:"Janela de contagem dos ClientHellos sem SNI."`
-	MinLabelLen      int           `json:"min_label_len" doc:"Tamanho mínimo de um rótulo de SNI para ser considerado aleatório (DGA sobre HTTPS)."` // rotulo do SNI longo e de alta entropia (DGA sobre HTTPS)
-	MinEntropy       float64       `json:"min_entropy" doc:"Entropia de Shannon mínima (bits por caractere) do rótulo do SNI."`
-	AllowedBases     []string      `json:"allowed_bases" doc:"Domínios base isentos da checagem de entropia do SNI."` // dominios base isentos da checagem de entropia
+	Cooldown         time.Duration `json:"cooldown" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta por cliente e motivo."` // por (cliente, motivo)
+	MissingSNIMin    int           `json:"missing_sni_min" label:"Hellos sem SNI (mínimo)" doc:"ClientHellos sem SNI na janela para alertar."`
+	MissingSNIWindow time.Duration `json:"missing_sni_window" label:"Janela dos Hellos sem SNI" doc:"Janela de contagem dos ClientHellos sem SNI."`
+	MinLabelLen      int           `json:"min_label_len" label:"Tamanho mínimo do rótulo" doc:"Tamanho mínimo de um rótulo de SNI para ser considerado aleatório (DGA sobre HTTPS)."` // rotulo do SNI longo e de alta entropia (DGA sobre HTTPS)
+	MinEntropy       float64       `json:"min_entropy" label:"Entropia mínima do rótulo" doc:"Entropia de Shannon mínima (bits por caractere) do rótulo do SNI."`
+	AllowedBases     []string      `json:"allowed_bases" label:"Domínios base permitidos" doc:"Domínios base isentos da checagem de entropia do SNI."` // dominios base isentos da checagem de entropia
 }
 
 // BeaconConfig parametriza net.beacon. A regra mantem estado proprio (nao depende da
 // janela deslizante, que e curta demais para beacons de minutos).
 type BeaconConfig struct {
-	MinSamples    int           `json:"min_samples" doc:"Contatos regulares necessários para alertar (de 4 a 32)."`                      // contatos regulares necessarios (4 a 32)
-	MinInterval   time.Duration `json:"min_interval" doc:"Contatos mais próximos que isto contam como um só (rajada ou retransmissão)."` // contatos mais proximos que isto contam como um so (rajada/retransmissao)
-	MaxInterval   time.Duration `json:"max_interval" doc:"Intervalo médio máximo; acima disso não é considerado beacon."`
-	MaxCV         float64       `json:"max_cv" doc:"Variação máxima (desvio dividido pela média) dos intervalos, entre 0 e 1."`       // coeficiente de variacao maximo (desvio/media) dos intervalos
-	MaxKeys       int           `json:"max_keys" doc:"Teto de séries (cliente e alvo) acompanhadas; as mais antigas são despejadas."` // teto de series acompanhadas
-	Cooldown      time.Duration `json:"cooldown" doc:"Tempo sem repetir o alerta para a mesma série."`
-	IgnoreDomains []string      `json:"ignore_domains" doc:"Domínios (exatos ou sufixo) ignorados nos beacons de DNS."` // dominio exato ou sufixo
-	IgnorePorts   []int         `json:"ignore_ports" doc:"Portas de destino TCP ignoradas."`                            // portas de destino TCP
+	MinSamples    int           `json:"min_samples" label:"Contatos regulares mínimos" doc:"Contatos regulares necessários para alertar (de 4 a 32)."`            // contatos regulares necessarios (4 a 32)
+	MinInterval   time.Duration `json:"min_interval" label:"Intervalo mínimo" doc:"Contatos mais próximos que isto contam como um só (rajada ou retransmissão)."` // contatos mais proximos que isto contam como um so (rajada/retransmissao)
+	MaxInterval   time.Duration `json:"max_interval" label:"Intervalo médio máximo" doc:"Intervalo médio máximo; acima disso não é considerado beacon."`
+	MaxCV         float64       `json:"max_cv" label:"Variação máxima (0 a 1)" doc:"Variação máxima (desvio dividido pela média) dos intervalos, entre 0 e 1."`          // coeficiente de variacao maximo (desvio/media) dos intervalos
+	MaxKeys       int           `json:"max_keys" label:"Máx. de séries monitoradas" doc:"Teto de séries (cliente e alvo) acompanhadas; as mais antigas são despejadas."` // teto de series acompanhadas
+	Cooldown      time.Duration `json:"cooldown" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para a mesma série."`
+	IgnoreDomains []string      `json:"ignore_domains" label:"Domínios ignorados" doc:"Domínios (exatos ou sufixo) ignorados nos beacons de DNS."` // dominio exato ou sufixo
+	IgnorePorts   []int         `json:"ignore_ports" label:"Portas ignoradas" doc:"Portas de destino TCP ignoradas."`                              // portas de destino TCP
 	// IgnoreDestinations: IPs ou CIDRs de destino das conexoes TCP que nao formam beacon
 	// (aplicativo conhecido que mantem conexao periodica, como um gateway de mensagens).
-	IgnoreDestinations []string `json:"ignore_destinations" doc:"IPs ou CIDRs de destino das conexões TCP ignorados (aplicativo conhecido que mantém conexão periódica)."`
+	IgnoreDestinations []string `json:"ignore_destinations" label:"Destinos ignorados" doc:"IPs ou CIDRs de destino das conexões TCP ignorados (aplicativo conhecido que mantém conexão periódica)."`
 }
 
 // BruteForceConfig parametriza net.bruteforce.auth.
 type BruteForceConfig struct {
-	Window        time.Duration `json:"window" doc:"Janela de observação das conexões."`
-	MinAttempts   int           `json:"min_attempts" doc:"Conexões (portas de origem distintas) ao mesmo destino e porta para alertar."` // conexoes (portas de origem distintas) ao mesmo destino:porta
-	Ports         []int         `json:"ports" doc:"Portas de serviços de autenticação monitoradas."`                                     // portas de autenticacao
-	Cooldown      time.Duration `json:"cooldown" doc:"Tempo sem repetir o alerta para a mesma origem e destino."`
-	IgnoreSources []string      `json:"ignore_sources" doc:"IPs ou CIDRs de origem isentos (scanners internos, automação)."` // IPs ou CIDRs isentos (scanners internos, automacao)
+	Window        time.Duration `json:"window" label:"Janela de observação" doc:"Janela de observação das conexões."`
+	MinAttempts   int           `json:"min_attempts" label:"Tentativas mínimas" doc:"Conexões (portas de origem distintas) ao mesmo destino e porta para alertar."` // conexoes (portas de origem distintas) ao mesmo destino:porta
+	Ports         []int         `json:"ports" label:"Portas monitoradas" doc:"Portas de serviços de autenticação monitoradas."`                                     // portas de autenticacao
+	Cooldown      time.Duration `json:"cooldown" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para a mesma origem e destino."`
+	IgnoreSources []string      `json:"ignore_sources" label:"Origens ignoradas" doc:"IPs ou CIDRs de origem isentos (scanners internos, automação)."` // IPs ou CIDRs isentos (scanners internos, automacao)
 }
 
 // ICMPSweepConfig parametriza net.icmp.sweep.
 type ICMPSweepConfig struct {
-	Window   time.Duration `json:"window" doc:"Janela de observação dos echo requests."`
-	MinHosts int           `json:"min_hosts" doc:"Destinos distintos com echo request para alertar."`
-	Cooldown time.Duration `json:"cooldown" doc:"Tempo sem repetir o alerta para a mesma origem."`
+	Window   time.Duration `json:"window" label:"Janela de observação" doc:"Janela de observação dos echo requests."`
+	MinHosts int           `json:"min_hosts" label:"Destinos distintos mínimos" doc:"Destinos distintos com echo request para alertar."`
+	Cooldown time.Duration `json:"cooldown" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para a mesma origem."`
 }
 
 // Config reune os limiares de todas as regras.
