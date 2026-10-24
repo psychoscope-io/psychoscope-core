@@ -5,7 +5,7 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 ## Estrutura
 
 - `cmd/psychoscope` (daemon) e `cmd/psychoscope-cli` (CLI e TUI; `alerts -v` mostra o contexto).
-- `internal/ipc`: `core.sock`. `server.go` (aceita e lê), `handshake.go` (Hello, `SO_PEERCRED`, recusa), `handler.go` (interfaces `Authorizer`/`Handler`), `session.go` (comandos ACK/NACK), `framer.go`, `listen.go`.
+- `internal/ipc`: `core.sock`. `server.go` (aceita e lê), `handshake.go` (Hello, `SO_PEERCRED`, recusa), `handler.go` (interfaces `Authorizer`/`Handler`), `session.go` (comandos ACK/NACK), `framer.go`, `listen.go`, `counters.go` (limita `StatusModulo.contadores`: até 64 chaves de até 64 caracteres em `[a-z0-9._-]`; o resto é descartado antes de qualquer consumidor).
 - `internal/supervisor`: `supervisor.go` (API: Run/Stop/Command/List), `ipc_integration.go` (autorização por PID e estado da conexão), `lifecycle.go` (processo filho: backoff, watchdog, parada em escalada).
 - `internal/detection` (+ `rules/`): janela deslizante, motor, regras. `internal/alerts`: barramento e histórico.
 - `internal/store` (SQLite e gravador em lote), `internal/metrics`, `internal/ctl` (`ctl.sock`: um manipulador por pedido, e cliente; `config.go` = leitura/escrita de configuração com a autorização por UID, `configvalue.go` = texto digitado ↔ JSON do contrato, `counters.go` = nomes legíveis dos contadores de módulo), `internal/version`, `internal/testmod` (módulo falso para testes).
