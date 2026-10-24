@@ -78,7 +78,7 @@ arquivo de configuração, o `:set` e a CLI usam, fica na linha de descrição d
 e ao lado do título da seção. Sob a lista aparecem a descrição e o formato do campo selecionado. `Enter` edita o campo (listas separadas por vírgula, durações como `30s`) e
 `:set campo=valor` faz o mesmo; `d` ou `:set campo&` restauram ao valor base e `:set campo` mostra o valor (o `:set` leva a seleção ao campo;
 `Tab` completa o caminho). As alterações ficam num **rascunho** (marcado com `*` e contado no título) e só `:w` as envia, de uma vez.
-`:q` recusa fechar com alterações pendentes, `:q!` as descarta e `:wq` grava e fecha. Sem permissão de escrita, a tela é somente leitura.
+`Esc` volta para a tela principal (como `:q`, recusa se houver alterações pendentes; durante a edição de um campo, cancela só a edição), `:q!` descarta as alterações e `:wq` grava e fecha. Sem permissão de escrita, a tela é somente leitura.
 
 **Ações `i` e `u` no detalhe do alerta.** Para os alertas de `net.beacon` (o IP de destino ou o domínio), `net.bruteforce.auth` (a origem) e
 `net.dns.tunnel` (o domínio base), `i` acrescenta o valor à lista de exceções da regra (`beacon.ignore_destinations`, `beacon.ignore_domains`,

@@ -638,3 +638,61 @@ func TestEveryCatalogSectionHasATitleAndEveryFieldALabel(t *testing.T) {
 		}
 	}
 }
+
+func TestEscGoesBackFromTheConfigScreen(t *testing.T) {
+	// sem alteracoes: Esc volta para a tela principal, sem precisar de comando
+	m, _ := openCfg(t, false)
+	m.Update(key("esc"))
+	if m.cfg != nil {
+		t.Fatal("Esc deveria fechar a tela de configurações")
+	}
+	if v := plain(m); strings.Contains(v, "Configurações") || !strings.Contains(v, "PSYCHOSCOPE") {
+		t.Fatalf("deveria estar na tela principal:\n%s", v)
+	}
+
+	// somente leitura tambem volta
+	m, _ = openCfg(t, true)
+	m.Update(key("esc"))
+	if m.cfg != nil {
+		t.Fatal("Esc volta também em somente leitura")
+	}
+
+	// durante a edicao de um campo, Esc so cancela a edicao
+	m, _ = openCfg(t, false)
+	selectField(t, m, "detection.scan.vertical_ports")
+	m.Update(key("enter"))
+	m.Update(key("esc"))
+	if m.cfg == nil || m.cfg.edit != nil {
+		t.Fatal("Esc na edição cancela só a edição")
+	}
+	m.Update(key("esc"))
+	if m.cfg != nil {
+		t.Fatal("o segundo Esc volta")
+	}
+}
+
+func TestEscWithPendingChangesDoesNotDiscardThem(t *testing.T) {
+	m, _ := openCfg(t, false)
+	run(m, "set detection.scan.vertical_ports=30")
+	m.Update(key("esc"))
+	if m.cfg == nil || len(m.cfg.draft) != 1 {
+		t.Fatalf("Esc não pode descartar o rascunho em silêncio: %+v", m.cfg)
+	}
+	if !strings.Contains(m.status, "1 alteração(ões) não gravada(s)") || !strings.Contains(m.status, ":q! descarta") || !m.statusErr {
+		t.Fatalf("status=%q", m.status)
+	}
+	run(m, "q!")
+	if m.cfg != nil {
+		t.Fatal(":q! descarta e fecha")
+	}
+}
+
+func TestQAndCtrlCStillOnlyHintHowToGoBack(t *testing.T) {
+	for _, k := range []string{"q", "ctrl+c"} {
+		m, _ := openCfg(t, false)
+		m.Update(key(k))
+		if m.cfg == nil || !strings.Contains(m.status, "Esc") {
+			t.Fatalf("%s: a tela fica aberta e a dica cita Esc: status=%q", k, m.status)
+		}
+	}
+}

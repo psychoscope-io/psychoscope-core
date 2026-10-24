@@ -169,8 +169,10 @@ func (m *Model) onKeySettings(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.startFieldEdit()
 	case "d":
 		return m, m.restoreSelected()
-	case "q", "esc", "ctrl+c":
-		return m, m.setStatus("para fechar a tela: :q (ou :q! para descartar as alterações)", false)
+	case "esc":
+		return m, m.closeSettings(false) // volta como o :q: recusa se houver alteração não gravada
+	case "q", "ctrl+c":
+		return m, m.setStatus("para voltar: Esc (ou :q; :q! descarta as alterações)", false)
 	}
 	return m, nil
 }

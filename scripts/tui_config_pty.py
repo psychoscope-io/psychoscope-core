@@ -107,6 +107,13 @@ send(b":q!\r")
 s = screen()
 check(":q! descarta e volta a tela principal", "Configurações" not in s and "PSYCHOSCOPE" in s, s)
 
+# Esc volta da tela de configuracoes, sem precisar de comando
+send(b":config\r", 1.0)
+check("a tela de configuracoes reabre", "Configurações" in screen(), screen())
+send(b"\x1b")
+s = screen()
+check("Esc volta para a tela principal", "Configurações" not in s and "PSYCHOSCOPE" in s, s)
+
 os.write(fd, b":q\r")
 end, status = time.time() + 6, None
 while time.time() < end:

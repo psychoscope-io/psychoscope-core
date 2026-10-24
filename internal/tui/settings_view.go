@@ -212,9 +212,9 @@ func (m *Model) settingsFooter(w int) string {
 		return fit(line+dimStyle.Render("Enter confirma · Esc cancela"), w)
 	}
 	if s.readOnly() {
-		return fit(dimStyle.Render("somente leitura · ↑/↓ navegar · :q fecha"), w)
+		return fit(dimStyle.Render("somente leitura · ↑/↓ navegar · Esc volta"), w)
 	}
-	return fit(dimStyle.Render("↑/↓ navegar · Enter edita · d restaura · :set campo=valor · :w grava · :q fecha"), w)
+	return fit(dimStyle.Render("↑/↓ navegar · Enter edita · d restaura · :set campo=valor · :w grava · Esc volta"), w)
 }
 
 // editLabel e o nome do campo em edicao.
