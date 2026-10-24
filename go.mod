@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.10.1
-	github.com/psychoscope-io/psychoscope-proto v0.3.0
+	github.com/psychoscope-io/psychoscope-proto v0.4.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 	google.golang.org/protobuf v1.36.12
