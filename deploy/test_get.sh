@@ -127,6 +127,7 @@ printf '#!/bin/sh\nexit 0\n' > "$T/fakebin/systemctl"; chmod +x "$T/fakebin/syst
 PATH="$T/fakebin:$PATH" get --dry-run --prefix "$T/prefix" >"$T/o6.txt" 2>&1 || { cat "$T/o6.txt" >&2; fail "dry-run"; }
 grep -q "^\[dry-run\] install" "$T/o6.txt" || fail "dry-run deveria listar as acoes do instalador"
 grep -q "^\[dry-run\] systemctl restart psychoscope" "$T/o6.txt" || fail "dry-run deveria mostrar o reinicio do servico"
+if grep -q "^reiniciando" "$T/o6.txt"; then fail "dry-run nao deveria anunciar um reinicio de verdade"; fi
 [ ! -e "$T/prefix" ] || fail "dry-run criou arquivos"
 
 # 7. falhas: checksum, arquitetura, argumentos

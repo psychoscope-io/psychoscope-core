@@ -19,6 +19,7 @@ grep -q '^ExecStart=/usr/local/bin/psychoscope --config /etc/psychoscope/psychos
 grep -q '^KillMode=mixed$' "$T/stage/etc/systemd/system/psychoscope.service" || fail "KillMode=mixed na unit (o Core encerra o sensor de forma ordenada)"
 grep -q "setcap nao aplicado" "$T/err.txt" || fail "deveria avisar que o setcap nao foi aplicado em staging"
 grep -q "systemctl enable --now psychoscope" "$T/out.txt" || fail "instrucoes finais"
+grep -q "Instalacao concluida" "$T/out.txt" || fail "a primeira instalacao deveria dizer que e nova"
 python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$T/stage/etc/psychoscope/psychoscope.json" || fail "config de exemplo nao e JSON valido"
 
 # 2. nao sobrescreve a configuracao existente; reinstalar e idempotente
@@ -26,6 +27,9 @@ echo '{"socket_mode":"0600"}' > "$T/stage/etc/psychoscope/psychoscope.json"
 "$HERE/install.sh" --bin-dir "$T/bin" --destdir "$T/stage" >"$T/out2.txt" 2>&1
 grep -q '"0600"' "$T/stage/etc/psychoscope/psychoscope.json" || fail "a configuracao existente foi sobrescrita"
 grep -q "mantendo /etc/psychoscope/psychoscope.json existente" "$T/out2.txt" || fail "mensagem de preservacao"
+grep -q "Atualizacao concluida" "$T/out2.txt" || fail "reinstalar deveria dizer que e uma atualizacao"
+if grep -q "enable --now" "$T/out2.txt"; then fail "a atualizacao nao deveria repetir os passos da instalacao nova"; fi
+grep -q "systemctl restart psychoscope" "$T/out2.txt" || fail "a atualizacao deveria dizer como reiniciar o servico"
 
 # 3. prefixo customizado reflete na unit
 "$HERE/install.sh" --bin-dir "$T/bin" --destdir "$T/stage2" --prefix /opt/psy >/dev/null 2>&1

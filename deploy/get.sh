@@ -211,7 +211,7 @@ main() {
   "${SUDO[@]}" bash "$core_dir/deploy/install.sh" "${args[@]}"
 
   if [ -z "$DESTDIR" ] && command -v systemctl >/dev/null && systemctl is-active --quiet psychoscope 2>/dev/null; then
-    echo "reiniciando o servico psychoscope para usar a versao nova ..."
+    [ "$DRY" = 1 ] || echo "reiniciando o servico psychoscope para usar a versao nova ..."
     as_root systemctl daemon-reload
     as_root systemctl restart psychoscope
   fi

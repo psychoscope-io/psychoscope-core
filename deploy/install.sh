@@ -57,6 +57,10 @@ BINDIR="$PREFIX/bin"
 CONF=/etc/psychoscope
 UNIT_DIR=/etc/systemd/system
 
+# Atualizacao ou instalacao nova? A unit e legivel sem root (a configuracao fica em um diretorio 0750).
+UPDATING=0
+[ ! -e "$(D "$UNIT_DIR")/psychoscope.service" ] || UPDATING=1
+
 # 1. usuario de sistema
 if [ -z "$DESTDIR" ]; then
   if ! getent passwd psychoscope >/dev/null; then
@@ -103,7 +107,15 @@ else
   chmod 0644 "$(D "$UNIT_DIR")/psychoscope.service"
 fi
 
-cat <<MSG
+if [ "$UPDATING" = 1 ]; then
+  cat <<MSG
+
+Atualizacao concluida${DESTDIR:+ em $DESTDIR}. A configuracao existente foi mantida.
+Para usar a versao nova: sudo systemctl daemon-reload && sudo systemctl restart psychoscope
+(o psychoscope-update ja faz isso sozinho)
+MSG
+else
+  cat <<MSG
 
 Instalacao concluida${DESTDIR:+ em $DESTDIR}.
 Proximos passos:
@@ -114,3 +126,4 @@ Proximos passos:
 Para atualizar depois: psychoscope-update --check  e  psychoscope-update
 Veja docs/INSTALL.md para permissoes, metricas e solucao de problemas.
 MSG
+fi
