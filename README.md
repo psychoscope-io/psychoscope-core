@@ -99,10 +99,12 @@ restaura. Exemplo: `sudo psychoscope-cli config set detection.beacon.ignore_dest
 Para só experimentar, sem montar configuração, rode `scripts/demo.sh` do [mod-net-sensor](https://github.com/psychoscope-io/mod-net-sensor#testar-em-minutos-demo): ele compila tudo, reproduz um pcap malicioso e abre a TUI.
 
 ```
-go build -o /tmp/psychoscope ./cmd/psychoscope && go build -o /tmp/psychoscope-cli ./cmd/psychoscope-cli
-/tmp/psychoscope --config psychoscope.json        # ou --socket/--ctl-socket
-/tmp/psychoscope-cli                              # TUI
+make build                                        # dist/psychoscope e dist/psychoscope-cli, com a versao (git describe)
+dist/psychoscope --config psychoscope.json        # ou --socket/--ctl-socket
+dist/psychoscope-cli                              # TUI
 ```
+
+Para montar o ambiente inteiro (clonar proto, core e sensor, atualizar e compilar tudo em `dist/`), use `scripts/dev.sh` do repositório [.github](https://github.com/psychoscope-io/.github) (`doctor`, `setup`, `update`, `build`, `clean`).
 
 `psychoscope.json` (tudo opcional exceto os módulos que você quer supervisionar; chaves desconhecidas são erro e a mensagem lista as válidas):
 
@@ -149,9 +151,9 @@ mesma ideia: `/var/lib/psychoscope` (ex.: `StateDirectory=`), senão `$XDG_STATE
 - Depende de `github.com/psychoscope-io/psychoscope-proto@v0.2.0`. Antes da publicação (ou offline): `source ../psychoscope-proto/scripts/local-deps.sh` resolve a dependência a partir do checkout local; para iterar no contrato sem criar tags, use um `go.work` (já ignorado pelo git).
 - `testdata/framing_vectors.json` é cópia de `psychoscope-proto/testdata/`.
 - `internal/testmod` é um módulo falso para testes (o binário de teste se re-executa como filho).
-- Testes do `install.sh`: `./deploy/test_install.sh`. Testes entre repositórios (daemon + sensor reais, persistência, TUI em pty):
+- Testes do `install.sh` e do `get.sh` (instala, atualiza e desinstala; sem rede nem root): `./deploy/test_install.sh` e `./deploy/test_get.sh`. Testes entre repositórios (daemon + sensor reais, persistência, TUI em pty):
   `mod-net-sensor/scripts/e2e.sh` e `scripts/live_smoke.sh`.
-- Releases: ao publicar uma tag `vX.Y.Z`, `.github/workflows/release.yml` gera tarballs (amd64/arm64), `SHA256SUMS` e atestado de proveniência.
+- Releases: `make tag` (`scripts/tag.sh`) cria a tag anotada da próxima versão, só localmente; ao publicar a tag `vX.Y.Z`, `.github/workflows/release.yml` gera tarballs (amd64/arm64), o `get.sh`, `SHA256SUMS` e atestado de proveniência.
 
 ## Licença
 

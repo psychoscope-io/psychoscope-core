@@ -3,7 +3,25 @@
 Linux (x86_64 ou arm64) com systemd. O Core é um binário estático em Go; o sensor de rede (`mod-net-sensor`)
 precisa da biblioteca `libpcap` instalada (`sudo apt install libpcap0.8`).
 
-## 1. Baixar e verificar
+## Instalação rápida (recomendada)
+
+O `get.sh` baixa a última release do Core e do sensor, confere o `SHA256SUMS` (e a atestação de proveniência, se o
+`gh` estiver instalado e logado), instala com o `install.sh` e reinicia o serviço se ele já estiver rodando. Baixe,
+leia e rode como usuário comum (ele usa `sudo` só para instalar):
+
+```bash
+curl -fsSLO https://github.com/psychoscope-io/psychoscope-core/releases/latest/download/get.sh
+less get.sh
+bash get.sh
+```
+
+Opções: `--core-version X.Y.Z` e `--sensor-version X.Y.Z` fixam versões (as duas são independentes), `--check` só
+compara a versão instalada com a última release (sai com 1 se houver atualização), `--dry-run` mostra o que seria
+instalado e `--no-setcap` pula a capability do sensor. Depois da primeira instalação o mesmo script fica em
+`/usr/local/sbin/psychoscope-update`. Siga para o passo 3 (configurar). Os passos 1 e 2 abaixo são o caminho manual,
+útil sem acesso à internet na máquina de destino ou para auditar cada etapa.
+
+## 1. Baixar e verificar (manual)
 
 Baixe os tarballs do Core e do sensor na página de *Releases* de cada repositório
 (`psychoscope-core` e `mod-net-sensor`) e verifique antes de instalar:
@@ -17,7 +35,7 @@ gh attestation verify mod-net-sensor_<versao>_linux_amd64.tar.gz   --repo psycho
 A atestação de proveniência prova que o binário foi gerado pelo workflow de release do repositório,
 a partir da tag correspondente.
 
-## 2. Instalar
+## 2. Instalar (manual)
 
 ```bash
 tar xzf psychoscope-core_<versao>_linux_amd64.tar.gz
@@ -115,11 +133,15 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
 
 ## Atualizar, desinstalar, backup
 
-- **Atualizar:** repita o passo 2 com os novos tarballs e rode `sudo systemctl daemon-reload && sudo systemctl restart psychoscope`
-  (o `daemon-reload` é necessário porque a atualização pode trocar a unit). A configuração e o banco de alertas são preservados.
+- **Atualizar:** `psychoscope-update --check` mostra se há versão nova e `psychoscope-update` baixa, confere, instala e
+  reinicia o serviço (inclui o `daemon-reload`, necessário porque a atualização pode trocar a unit). A configuração e o
+  banco de alertas são preservados. Sem o atualizador, repita o passo 2 com os novos tarballs e rode
+  `sudo systemctl daemon-reload && sudo systemctl restart psychoscope`.
 - **Backup:** copie `/etc/psychoscope/` e `/var/lib/psychoscope/alerts.db` (SQLite em modo WAL; use
   `sqlite3 alerts.db ".backup alerts.bak"` com o serviço rodando).
-- **Desinstalar:** pare e desabilite o serviço, remova a unit e os binários e recarregue o systemd:
+- **Desinstalar:** `psychoscope-update --uninstall` para o serviço e remove a unit e os binários, mantendo configuração e
+  alertas; com `--purge` apaga também `/etc/psychoscope`, `/var/lib/psychoscope` e o usuário (pede confirmação; `--yes`
+  dispensa). Passo a passo manual equivalente:
 
   ```bash
   sudo systemctl disable --now psychoscope

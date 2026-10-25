@@ -13,7 +13,7 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 - `internal/tui`: `model.go` (estado, `Update` e despacho de teclas), `cmdline.go` (linha de comando `:`; tabela `commands`: `q`, `q!`, `quit`, `stop`, `config`, `set`, `w`, `wq`) e `lineeditor.go` (editor de linha), `detail.go` (detalhe do alerta com rolagem e as teclas `i` e `u`, que acrescentam e removem a exceção sugerida), `settings.go` e `settings_view.go` (tela de configurações: rascunho, `:set`, `:w`), `messages.go`, `commands.go` (chamadas assíncronas), `view.go` e `panels.go`.
 - `internal/config`: `config.go` (`Load`/`Validate`), `env.go`, `file.go` (flags e esquema JSON), uma seção por arquivo (`modules`, `storage`, `metrics`, `detection`), `overlay.go` e `overrides.go` (`Overrides`: ajustes por caminho; `Layer` os aplica sobre a base sem alterá-la).
 - `internal/app`: ponto de composição (`app.go`: `build` → `listen` → `serve`, com encerramento ordenado), `sink.go` (telemetria → motor), `metrics.go` (coletores) e `settings.go` (liga `internal/settings` ao motor e ao gravador).
-- `deploy/` (unit do systemd, `install.sh`) e `docs/INSTALL.md`.
+- `deploy/` (unit do systemd, `install.sh`, `get.sh`: baixa, atualiza e desinstala, instalado como `psychoscope-update`; testes `test_install.sh` e `test_get.sh`) e `docs/INSTALL.md`.
 
 ## Comandos
 
@@ -21,7 +21,10 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 make hooks                  # uma vez por clone: ativa commit-msg, pre-commit e pre-push
 make check                  # o que o CI roda: gofmt, vet, golangci-lint, shellcheck, actionlint, govulncheck, go test -race
 make fmt                    # gofmt -w
+make build                  # dist/psychoscope e dist/psychoscope-cli com a versão (a release usa o mesmo alvo)
+make tag                    # scripts/tag.sh: tag anotada da próxima versão (local; o push é seu)
 ./deploy/test_install.sh    # instalador, sem privilégios
+./deploy/test_get.sh        # get.sh (servidor HTTP local, --destdir), sem rede nem root
 ```
 
 Ferramentas (fora do `go.mod`): `golangci-lint` v2, `govulncheck`, `actionlint` (`go install`) e `shellcheck`. Achado de lint se corrige; só vira `//nolint:<linter> // motivo` quando o aviso é legítimo e o motivo cabe numa linha.
