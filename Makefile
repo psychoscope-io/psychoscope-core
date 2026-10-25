@@ -1,7 +1,7 @@
 # Atalhos de desenvolvimento. `make check` e o que o CI e o hook pre-push executam.
 
 
-.PHONY: build clean fmt lint nowork vuln test check precommit hooks
+.PHONY: build clean fmt lint nowork vuln test check precommit hooks tag
 
 # Receita unica de compilacao: a release (.github/workflows/release.yml) e o desenvolvimento local
 # usam este alvo, entao o binario local tambem informa a versao (`psychoscope --version`).
@@ -49,3 +49,7 @@ check: lint vuln test
 # Ativa os hooks versionados em .githooks (commit-msg, pre-commit, pre-push).
 hooks:
 	git config core.hooksPath .githooks
+
+# Cria a tag anotada da proxima versao (interativo; so local, nao faz push). Veja scripts/tag.sh --help.
+tag:
+	scripts/tag.sh
