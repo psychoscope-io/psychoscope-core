@@ -10,7 +10,7 @@ for b in psychoscope psychoscope-cli mod-net-sensor; do printf '#!/bin/sh\necho 
 
 # 1. instalacao em staging
 "$HERE/install.sh" --bin-dir "$T/bin" --sensor "$T/bin/mod-net-sensor" --destdir "$T/stage" --prefix /usr/local >"$T/out.txt" 2>"$T/err.txt"
-for f in usr/local/bin/psychoscope usr/local/bin/psychoscope-cli usr/local/bin/mod-net-sensor; do
+for f in usr/local/bin/psychoscope usr/local/bin/psychoscope-cli usr/local/bin/mod-net-sensor usr/local/sbin/psychoscope-update; do
   [ -x "$T/stage/$f" ] || fail "$f nao instalado/executavel"
 done
 [ "$(stat -c %a "$T/stage/etc/psychoscope/psychoscope.json")" = 640 ] || fail "modo da configuracao"

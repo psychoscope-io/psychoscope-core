@@ -77,6 +77,11 @@ if [ -n "$SENSOR" ]; then
     echo "aviso: setcap nao aplicado. Rode: setcap cap_net_raw,cap_net_admin=eip $BINDIR/mod-net-sensor" >&2
   fi
 fi
+# O atualizador fica instalado: `psychoscope-update` baixa, confere e instala a proxima versao.
+if [ -f "$HERE/get.sh" ]; then
+  run install -d -m 0755 "$(D "$PREFIX/sbin")"
+  run install -m 0755 "$HERE/get.sh" "$(D "$PREFIX/sbin")/psychoscope-update"
+fi
 
 # 3. configuracao (nunca sobrescreve)
 run install -d -m 0750 "$(D "$CONF")"
@@ -106,5 +111,6 @@ Proximos passos:
      veja os nomes com: mod-net-sensor --list-interfaces)
   2. sudo systemctl daemon-reload && sudo systemctl enable --now psychoscope
   3. sudo psychoscope-cli list        # ou: sudo psychoscope-cli (TUI)
+Para atualizar depois: psychoscope-update --check  e  psychoscope-update
 Veja docs/INSTALL.md para permissoes, metricas e solucao de problemas.
 MSG

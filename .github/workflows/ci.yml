@@ -56,6 +56,8 @@ jobs:
       - run: go build ./cmd/psychoscope ./cmd/psychoscope-cli
       - name: testes do install.sh
         run: ./deploy/test_install.sh
+      - name: testes do get.sh
+        run: ./deploy/test_get.sh
       - name: unit do systemd
         run: |
           sed 's#/usr/local/bin/psychoscope#/bin/true#' deploy/systemd/psychoscope.service > /tmp/psychoscope.service

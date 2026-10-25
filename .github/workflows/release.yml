@@ -18,6 +18,7 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: ./deploy/test_install.sh
+      - run: ./deploy/test_get.sh
 
   build:
     needs: test
@@ -40,7 +41,7 @@ jobs:
           mkdir -p "dist/$PKG"
           make build VERSION="$VERSION" DIST="dist/$PKG"
           cp -r LICENSE README.md deploy docs "dist/$PKG/"
-          rm -f "dist/$PKG/deploy/test_install.sh"
+          rm -f "dist/$PKG/deploy/test_install.sh" "dist/$PKG/deploy/test_get.sh"
           tar -C dist -czf "dist/$PKG.tar.gz" "$PKG"
           rm -rf "dist/$PKG"
       - uses: actions/upload-artifact@v7
@@ -57,20 +58,24 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: core-*
           merge-multiple: true
+      # get.sh tambem vai como asset: o primeiro download e dele (le-se antes de rodar).
       - name: checksums
         working-directory: dist
-        run: sha256sum ./*.tar.gz > SHA256SUMS && cat SHA256SUMS
+        run: cp ../deploy/get.sh get.sh && sha256sum ./*.tar.gz ./get.sh > SHA256SUMS && cat SHA256SUMS
       - uses: actions/attest-build-provenance@v4
         with:
-          subject-path: dist/*.tar.gz
+          subject-path: |
+            dist/*.tar.gz
+            dist/get.sh
       - name: criar a release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/get.sh dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
