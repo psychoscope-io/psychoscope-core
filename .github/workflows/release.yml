@@ -37,10 +37,8 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           PKG="psychoscope-core_${VERSION}_linux_${{ matrix.goarch }}"
-          LDFLAGS="-s -w -X github.com/psychoscope-io/psychoscope-core/internal/version.Version=${VERSION}"
           mkdir -p "dist/$PKG"
-          go build -trimpath -ldflags "$LDFLAGS" -o "dist/$PKG/psychoscope" ./cmd/psychoscope
-          go build -trimpath -ldflags "$LDFLAGS" -o "dist/$PKG/psychoscope-cli" ./cmd/psychoscope-cli
+          make build VERSION="$VERSION" DIST="dist/$PKG"
           cp -r LICENSE README.md deploy docs "dist/$PKG/"
           rm -f "dist/$PKG/deploy/test_install.sh"
           tar -C dist -czf "dist/$PKG.tar.gz" "$PKG"
