@@ -48,7 +48,30 @@ O que cada regra detecta, como investigar um alerta e como ajustar os falsos pos
   Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `config [-v] [prefixo]` / `config set campo=valor ...` /
   `config reset campo ...`, `alerts [--no-history] [-v]` (ao vivo),
   `alerts --history [-n 50] [--since 2h] [--min-severity alta] [--rule R] [--module M] [-v]` (persistido; `-v` mostra o contexto
-  `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `--version`.
+  `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `doctor` (veja abaixo), `--version`.
+
+## Diagnóstico (`psychoscope-cli doctor`)
+
+Verifica a instalação de uma vez e diz o que corrigir. É somente leitura: não altera nada na máquina.
+
+```bash
+psychoscope-cli doctor [--sensor] [--json] [--config /etc/psychoscope/psychoscope.json]
+```
+
+Saída no mesmo formato do `mod-net-sensor --check` (`[ok]`, `[aviso]`, `[falha]` e a linha `como corrigir:`), terminando com `resultado: N falha(s), M aviso(s)`.
+O código de saída é **1 se houver alguma falha** e 0 caso contrário (avisos não contam), o que serve a scripts e a monitoramento.
+
+| Verificação | O que olha |
+|---|---|
+| Socket de controle | abre o `ctl.sock` e, se não abrir, diz por quê: ausente (serviço parado ou caminho errado, inclusive o fallback de `$XDG_RUNTIME_DIR`), sem permissão (mostra modo e dono) ou UID não autorizado |
+| Serviço systemd | `systemctl is-active psychoscope`; pulado se não houver `systemctl`. Unit parada com o Core respondendo vira aviso (Core iniciado fora do systemd) |
+| Core | versão e tempo ligado |
+| Módulos | estado, versão declarada, há quanto tempo estão conectados, PID e reinícios (com o último erro) |
+| Perda de pacotes | por módulo, a partir dos contadores de perda: qualquer perda é aviso e **1 % ou mais dos pacotes é falha**, com a causa provável (captura, fila de eventos ou IPC). Os contadores são cumulativos desde que o módulo subiu |
+
+- `--sensor`: também roda o `--check` do `mod-net-sensor` configurado (até 10 s) e repassa as falhas, avisos e correções dele. O arquivo de configuração costuma ser legível só pelo grupo `psychoscope`; sem acesso, o doctor avisa e segue. O `--check` roda com a identidade de quem chamou, e não com a do serviço; a saída traz o comando para reproduzir como o serviço (`sudo -u psychoscope ...`).
+- `--json`: o mesmo relatório como JSON estável, `{"resultado": {"falhas", "avisos"}, "achados": [{"nivel", "item", "detalhe", "como_corrigir"}]}`, com `nivel` em `ok`, `aviso`, `falha` ou `pulado`.
+- Se o Core não responde, o que depende dele aparece como `[pulado]`, sem repetir o mesmo erro.
 
 ## Configuração em tempo de execução
 

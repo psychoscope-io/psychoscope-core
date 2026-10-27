@@ -4,7 +4,7 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 
 ## Estrutura
 
-- `cmd/psychoscope` (daemon) e `cmd/psychoscope-cli` (CLI e TUI; `alerts -v` mostra o contexto).
+- `cmd/psychoscope` (daemon) e `cmd/psychoscope-cli` (CLI e TUI; `alerts -v` mostra o contexto). `doctor` = `doctor.go` (orquestra e sai com 1 se houver falha), `doctor_checks.go` (decisões puras), `doctor_env.go` (único I/O de sistema, atrás de `doctorEnv`), `doctor_sensor.go` (`--check` do sensor) e `doctor_report.go` (texto e JSON).
 - `internal/ipc`: `core.sock`. `server.go` (aceita e lê), `handshake.go` (Hello, `SO_PEERCRED`, recusa), `handler.go` (interfaces `Authorizer`/`Handler`), `session.go` (comandos ACK/NACK), `framer.go`, `listen.go`, `counters.go` (limita `StatusModulo.contadores`: até 64 chaves de até 64 caracteres em `[a-z0-9._-]`; o resto é descartado antes de qualquer consumidor).
 - `internal/supervisor`: `supervisor.go` (API: Run/Stop/Command/List), `ipc_integration.go` (autorização por PID e estado da conexão), `lifecycle.go` (processo filho: backoff, watchdog, parada em escalada).
 - `internal/detection` (+ `rules/`): janela deslizante, motor, regras. `internal/alerts`: barramento e histórico.

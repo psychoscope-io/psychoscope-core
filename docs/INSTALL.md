@@ -160,6 +160,8 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
 
 ## Solução de problemas
 
+Comece por `psychoscope-cli doctor` (com `--sensor` para incluir o `--check` do sensor): ele distingue serviço parado, socket ausente, falta de permissão e UID não autorizado, mostra o estado de cada módulo e a perda de pacotes, e imprime o comando de correção. O código de saída é 1 se houver falha.
+
 | Sintoma | Causa provável |
 |---|---|
 | `nao foi possivel iniciar a captura ... Operation not permitted` no log do sensor | `setcap` ausente, ou `NoNewPrivileges=yes` na unit |
@@ -167,5 +169,5 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
 | o sensor sobe, mas o Core não mostra eventos | rode `mod-net-sensor --check -i <interface>`: ele confere permissão, filtro BPF e se o Core está escutando, e diz o que corrigir; `--print` mostra os eventos sem o Core |
 | `error while loading shared libraries: libpcap.so.0.8` | instale `libpcap0.8` |
 | `armazenamento de alertas em ...: ... (defina storage.enabled=false ...)` | o usuário `psychoscope` não consegue escrever em `storage.path`; use o padrão (`StateDirectory`) ou ajuste permissões |
-| `psychoscope-cli`: `permission denied` ou conexão encerrada sem resposta | UID não permitido: use `sudo` ou `allowed_uids` (e o grupo `psychoscope`) |
+| `psychoscope-cli`: `permission denied`, `no such file or directory` ou conexão encerrada sem resposta | `psychoscope-cli doctor` diz qual: serviço parado, caminho do socket errado, usuário fora do grupo `psychoscope` ou UID fora de `allowed_uids` (ou use `sudo`) |
 | módulo em `REINICIANDO` com erro `nao conectou ao socket` | caminho/permissões do binário do módulo, ou `connect_timeout` curto demais |
