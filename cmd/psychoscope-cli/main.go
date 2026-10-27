@@ -7,10 +7,12 @@
 //	psychoscope-cli [--ctl-socket S] alerts --history [-v] ... consulta o historico persistido
 //	psychoscope-cli [--ctl-socket S] metrics               metricas do Core
 //	psychoscope-cli [--ctl-socket S] config [set|reset ...] configuracao editavel em tempo de execucao
+//	psychoscope-cli [--ctl-socket S] doctor [--sensor] [--json] diagnostico da instalacao (sai com 1 se houver falha)
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -39,6 +41,9 @@ const usage = `uso: psychoscope-cli [--ctl-socket S] [comando]
   config [-v] [prefixo]               lista os campos de configuracao editaveis (valor, padrao, origem)
   config set campo=valor [...]        ajusta campos (so root); listas separadas por virgula, duracoes como 30s
   config reset campo [...]            volta ao valor do arquivo do administrador, ou ao padrao (so root)
+  doctor [--sensor] [--json] [--config caminho]
+                                      diagnostica a instalacao e diz o que corrigir
+                                      (--sensor roda o --check do sensor; --json para scripts)
   --version                           versao`
 
 var actions = map[string]psychoscopev1.ComandoControle_TipoAcao{
@@ -69,7 +74,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if err := run(ctx, &ctl.Client{Path: sock}, args, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "psychoscope-cli:", err)
+		if !errors.Is(err, errDoctorFailed) { // o doctor ja imprimiu o relatorio
+			fmt.Fprintln(os.Stderr, "psychoscope-cli:", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -93,6 +100,8 @@ func run(ctx context.Context, cl *ctl.Client, args []string, out io.Writer) erro
 		return cmdMetrics(ctx, cl, out)
 	case "config":
 		return cmdConfig(ctx, cl, args[1:], out)
+	case "doctor":
+		return cmdDoctor(ctx, cl, args[1:], out)
 	}
 	return fmt.Errorf("subcomando desconhecido %q\n%s", args[0], usage)
 }
