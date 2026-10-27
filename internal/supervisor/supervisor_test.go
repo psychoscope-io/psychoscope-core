@@ -127,6 +127,9 @@ func TestModuleStartsAndConnects(t *testing.T) {
 	if i.PID == 0 || i.Restarts != 0 || i.LastContact.IsZero() {
 		t.Fatalf("info inesperada: %+v", i)
 	}
+	if i.ModuleVersion != "testmod" || i.ConnectedSince.IsZero() || time.Since(i.ConnectedSince) > time.Minute {
+		t.Fatalf("versao e inicio da conexao esperados com o modulo conectado: %+v", i)
+	}
 	if len(e.sup.List()) != 1 {
 		t.Fatal("List")
 	}
@@ -145,6 +148,17 @@ func TestCrashIsRestartedAndReconnects(t *testing.T) {
 	i, _ := e.sup.Get("mod-a")
 	if i.LastError == "" {
 		t.Errorf("LastError deveria registrar o motivo da queda: %+v", i)
+	}
+}
+
+func TestDisconnectedModuleHasNoVersionOrConnectionStart(t *testing.T) {
+	e := setup(t, false, spec("mod-a", "PSY_NOCONNECT=1"))
+	eventually(t, 5*time.Second, "processo lancado", func() bool {
+		i, _ := e.sup.Get("mod-a")
+		return i.PID != 0
+	})
+	if i, _ := e.sup.Get("mod-a"); i.ModuleVersion != "" || !i.ConnectedSince.IsZero() {
+		t.Fatalf("sem conexao nao ha versao nem inicio: %+v", i)
 	}
 }
 

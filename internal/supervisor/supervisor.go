@@ -57,6 +57,10 @@ type Info struct {
 	LastContact time.Time
 	LastStatus  *psychoscopev1.StatusModulo
 	LastError   string
+	// ModuleVersion e ConnectedSince vem da conexao ativa (HelloModulo e instante do handshake);
+	// ficam vazios enquanto o modulo nao esta conectado.
+	ModuleVersion  string
+	ConnectedSince time.Time
 }
 
 // Supervisor implementa ipc.Authorizer e ipc.Handler (estado de conexao dos modulos).
@@ -264,6 +268,7 @@ func (m *managed) info() Info {
 	if m.sess != nil {
 		in.LastContact = m.sess.LastSeen()
 		in.LastStatus = m.sess.LastStatus()
+		in.ModuleVersion, in.ConnectedSince = m.sess.ModuleVersion, m.sess.ConnectedAt
 		if m.paused {
 			in.State = psychoscopev1.EstadoModulo_ESTADO_PAUSADO
 		}

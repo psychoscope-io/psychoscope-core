@@ -452,3 +452,15 @@ func TestMetricsRequest(t *testing.T) {
 		t.Fatalf("sem coletor, lista vazia: %v %v", ms, err)
 	}
 }
+
+func TestInfoToProtoCarriesVersionAndConnectionStart(t *testing.T) {
+	since := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+	got := InfoToProto(supervisor.Info{ID: "mod-a", ModuleVersion: "0.3.0", ConnectedSince: since})
+	if got.GetVersaoModulo() != "0.3.0" || !got.GetConectadoDesde().AsTime().Equal(since) {
+		t.Fatalf("campos novos nao repassados: %v", got)
+	}
+	idle := InfoToProto(supervisor.Info{ID: "mod-a"})
+	if idle.GetVersaoModulo() != "" || idle.GetConectadoDesde() != nil || idle.GetUltimoContato() != nil {
+		t.Fatalf("sem conexao os campos ficam ausentes: %v", idle)
+	}
+}

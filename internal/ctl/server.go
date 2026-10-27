@@ -325,10 +325,13 @@ func (c *clientConn) forwardAlerts(id string, sub *alerts.Subscription) {
 func InfoToProto(in supervisor.Info) *psychoscopev1.ModuloInfo {
 	m := &psychoscopev1.ModuloInfo{
 		IdModulo: in.ID, Estado: in.State, Pid: uint32(max(in.PID, 0)), //nolint:gosec // PID nao negativo (max com 0)
-		Reinicios: in.Restarts, UltimoStatus: in.LastStatus, UltimoErro: in.LastError,
+		Reinicios: in.Restarts, UltimoStatus: in.LastStatus, UltimoErro: in.LastError, VersaoModulo: in.ModuleVersion,
 	}
 	if !in.LastContact.IsZero() {
 		m.UltimoContato = timestamppb.New(in.LastContact)
+	}
+	if !in.ConnectedSince.IsZero() {
+		m.ConectadoDesde = timestamppb.New(in.ConnectedSince)
 	}
 	return m
 }
