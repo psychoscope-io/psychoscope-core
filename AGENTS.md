@@ -13,7 +13,7 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 - `internal/tui`: `model.go` (estado, `Update` e despacho de teclas), `cmdline.go` (linha de comando `:`; tabela `commands`: `q`, `q!`, `quit`, `stop`, `config`, `set`, `w`, `wq`) e `lineeditor.go` (editor de linha), `detail.go` (detalhe do alerta com rolagem e as teclas `i` e `u`, que acrescentam e removem a exceção sugerida), `settings.go` e `settings_view.go` (tela de configurações: rascunho, `:set`, `:w`), `messages.go`, `commands.go` (chamadas assíncronas), `view.go` e `panels.go`.
 - `internal/config`: `config.go` (`Load`/`Validate`), `env.go`, `file.go` (flags e esquema JSON), uma seção por arquivo (`modules`, `storage`, `metrics`, `detection`), `overlay.go` e `overrides.go` (`Overrides`: ajustes por caminho; `Layer` os aplica sobre a base sem alterá-la).
 - `internal/app`: ponto de composição (`app.go`: `build` → `listen` → `serve`, com encerramento ordenado), `sink.go` (telemetria → motor), `metrics.go` (coletores) e `settings.go` (liga `internal/settings` ao motor e ao gravador).
-- `deploy/` (unit do systemd, `install.sh`, `get.sh`: baixa, atualiza e desinstala, instalado como `psychoscope-update`; testes `test_install.sh` e `test_get.sh`) e `docs/INSTALL.md`.
+- `deploy/` (unit do systemd, `install.sh`, `get.sh`: baixa, atualiza e desinstala, instalado como `psychoscope-update`; testes `test_install.sh` e `test_get.sh`), `docs/INSTALL.md` e `docs/REGRAS.md` (referência por regra: o que detecta, como investigar, falsos positivos, ajuste).
 
 ## Comandos
 

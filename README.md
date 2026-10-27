@@ -4,6 +4,8 @@ Orquestrador (hub) do Psychoscope MODR, com motor de detecção, persistência d
 
 Instalação como serviço (systemd, usuário dedicado, privilégios mínimos): [docs/INSTALL.md](docs/INSTALL.md).
 
+O que cada regra detecta, como investigar um alerta e como ajustar os falsos positivos: [docs/REGRAS.md](docs/REGRAS.md).
+
 ## O que faz
 
 - **IPC dos módulos** (`internal/ipc`): `core.sock` (0660), framing length-prefixed, handshake `Hello`/`HelloResposta`,
