@@ -48,7 +48,7 @@ O que cada regra detecta, como investigar um alerta e como ajustar os falsos pos
   Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `config [-v] [prefixo]` / `config set campo=valor ...` /
   `config reset campo ...`, `alerts [--no-history] [-v]` (ao vivo),
   `alerts --history [-n 50] [--since 2h] [--min-severity alta] [--rule R] [--module M] [-v]` (persistido; `-v` mostra o contexto
-  `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `doctor` e `analyze` (veja abaixo), `--version`.
+  `chave=valor` de cada alerta, uma linha recuada por chave, e por fim `tecnica=ID nome` com a técnica do [MITRE ATT&CK](https://attack.mitre.org) compatível, quando a regra tem uma), `metrics`, `doctor` e `analyze` (veja abaixo), `--version`.
 
 ## Diagnóstico (`psychoscope-cli doctor`)
 
@@ -93,7 +93,7 @@ não o relógio da máquina, e cada alerta mostra o instante do evento (UTC).
 | `--set detection.<regra>.<campo>=valor` | testa um ajuste de limiar (repetível; mesmo texto do `config set`: durações como `30s`, listas separadas por vírgula). Só campos de detecção |
 | `--config caminho` | parte de um arquivo de configuração em vez dos padrões embutidos (sem ele, o resultado independe da máquina) |
 | `--rule regra` | mostra só os alertas dessa regra (as demais regras continuam rodando) |
-| `--json` | um objeto JSON com `eventos`, `inicio`, `fim`, `alertas` (instante, severidade, regra, descrição, contexto), `por_regra` e `incompleta` |
+| `--json` | um objeto JSON com `eventos`, `inicio`, `fim`, `alertas` (instante, severidade, regra, descrição, `tecnica` ATT&CK quando a regra tem uma, contexto), `por_regra` e `incompleta` |
 | `--fail-on-alert` | sai com **2** se houver alertas (para testes de regressão e CI) |
 | `--sensor caminho` | binário do sensor |
 | `--timeout 5m`, `--max-alerts 10000` | limites: o sensor é encerrado ao fim do prazo; alertas além do teto são descartados e contados |
