@@ -24,6 +24,9 @@ type fileConfig struct {
 	Storage        fileStorage   `json:"storage"`
 	Metrics        fileMetrics   `json:"metrics"`
 	OverridesPath  string        `json:"overrides_path"`
+	// estado do motor de deteccao (cooldowns e series do beacon)
+	EngineStatePath     string `json:"engine_state_path"`
+	EngineStateInterval string `json:"engine_state_interval"`
 }
 
 // flags sao as opcoes de linha de comando.

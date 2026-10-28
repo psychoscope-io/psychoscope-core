@@ -89,16 +89,18 @@ func TestLoadRejects(t *testing.T) {
 		return p
 	}
 	cases := map[string]string{
-		"campo desconhecido":      `{"bogus":1}`,
-		"modo com bits de outros": `{"socket_mode":"0666"}`,
-		"modo nao octal":          `{"socket_mode":"abc"}`,
-		"id invalido":             `{"modules":[{"id":"../x","path":"/bin/true"}]}`,
-		"id duplicado":            `{"modules":[{"id":"a","path":"/x"},{"id":"a","path":"/y"}]}`,
-		"sem path":                `{"modules":[{"id":"a"}]}`,
-		"backoff invertido":       `{"modules":[{"id":"a","path":"/x","restart_min_backoff":"10s","restart_max_backoff":"1s"}]}`,
-		"duracao invalida":        `{"status_interval":"5 segundos"}`,
-		"log invalido":            `{"log_level":"trace"}`,
-		"sockets iguais":          `{"socket":"/a","ctl_socket":"/a"}`,
+		"campo desconhecido":           `{"bogus":1}`,
+		"modo com bits de outros":      `{"socket_mode":"0666"}`,
+		"modo nao octal":               `{"socket_mode":"abc"}`,
+		"id invalido":                  `{"modules":[{"id":"../x","path":"/bin/true"}]}`,
+		"id duplicado":                 `{"modules":[{"id":"a","path":"/x"},{"id":"a","path":"/y"}]}`,
+		"sem path":                     `{"modules":[{"id":"a"}]}`,
+		"backoff invertido":            `{"modules":[{"id":"a","path":"/x","restart_min_backoff":"10s","restart_max_backoff":"1s"}]}`,
+		"duracao invalida":             `{"status_interval":"5 segundos"}`,
+		"log invalido":                 `{"log_level":"trace"}`,
+		"sockets iguais":               `{"socket":"/a","ctl_socket":"/a"}`,
+		"intervalo do estado ruim":     `{"engine_state_interval":"um minuto"}`,
+		"intervalo do estado negativo": `{"engine_state_interval":"-1s"}`,
 	}
 	for name, body := range cases {
 		if _, err := Load([]string{"-config", write(body)}, env(0, nil)); err == nil {
@@ -338,5 +340,25 @@ func TestOverridesPathFromTheFileOverridesTheStateDirDefault(t *testing.T) {
 	c, err := Load([]string{"-config", p}, env(0, nil))
 	if err != nil || c.OverridesPath != custom {
 		t.Fatalf("overrides_path do arquivo: %q %v", c.OverridesPath, err)
+	}
+}
+
+func TestEngineStateDefaultsAndFileOverrides(t *testing.T) {
+	c, err := Load(nil, env(0, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(DefaultStateDir(env(0, nil)), "engine-state.json"); c.EngineStatePath != want || c.EngineStateInterval != time.Minute {
+		t.Fatalf("padroes: %q %v", c.EngineStatePath, c.EngineStateInterval)
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "c.json")
+	custom := filepath.Join(dir, "motor.json")
+	if err := os.WriteFile(p, []byte(`{"engine_state_path":"`+custom+`","engine_state_interval":"0s"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = Load([]string{"-config", p}, env(0, nil))
+	if err != nil || c.EngineStatePath != custom || c.EngineStateInterval != 0 {
+		t.Fatalf("valores do arquivo (0s grava so no encerramento): %q %v %v", c.EngineStatePath, c.EngineStateInterval, err)
 	}
 }

@@ -175,6 +175,25 @@ func TestSettingsChangeDetectionLiveAndPersist(t *testing.T) {
 	}
 }
 
+// Ajustar uma regra nao repete os alertas das outras: o cooldown da varredura sobrevive a uma
+// reconfiguracao que so mexeu no beacon (a regra ajustada, essa sim, recomeca; veja o teste acima).
+func TestSettingsChangeOfAnotherRuleKeepsTheScanCooldown(t *testing.T) {
+	cfg := settingsCfg(t)
+	startDaemonOpts(t, cfg, options{admin: func(uint32) bool { return true }})
+	cl := &ctl.Client{Path: cfg.CtlSocketPath, CallTimeout: 10 * time.Second}
+
+	waitAlerts(t, cl, 1)
+	if _, err := cl.ApplyConfig(context.Background(), map[string]string{"detection.beacon.max_cv": "0.1"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	before := processedEvents(t, cl)
+	restartModule(t, cl) // reenvia a mesma varredura (mesmos instantes)
+	waitUntil(t, "motor processar os eventos reenviados", func() bool { return processedEvents(t, cl) >= before+30 })
+	if n := alertCount(t, cl); n != 1 {
+		t.Fatalf("mexer no beacon nao pode repetir o alerta da varredura: %d alertas", n)
+	}
+}
+
 // Sem a politica injetada, so o root escreve: um usuario comum le e e recusado ao escrever.
 func TestSettingsWriteIsDeniedToNonRoot(t *testing.T) {
 	if os.Geteuid() == 0 {

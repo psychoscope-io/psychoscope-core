@@ -38,6 +38,12 @@ type Config struct {
 	// configuracoes e CLI), no diretorio de estado. Vazio desliga a configuracao em tempo
 	// de execucao (os testes que montam Config a mao nao a usam).
 	OverridesPath string
+	// EngineStatePath e o arquivo onde o estado do motor (cooldowns e series do beacon) e salvo
+	// para sobreviver a um reinicio, no diretorio de estado. Vazio desliga o recurso (os testes
+	// que montam Config a mao nao o usam). EngineStateInterval e o intervalo do snapshot
+	// periodico; 0 grava so no encerramento.
+	EngineStatePath     string
+	EngineStateInterval time.Duration
 }
 
 // Load interpreta args (sem o nome do programa) e produz a configuracao validada.
@@ -53,15 +59,16 @@ func Load(args []string, e Env) (*Config, error) {
 
 	dir := DefaultSocketDir(e)
 	c := &Config{
-		SocketPath:     firstNonEmpty(fl.socket, e.Getenv(EnvSocket), fc.Socket, filepath.Join(dir, "core.sock")),
-		CtlSocketPath:  firstNonEmpty(fl.ctlSocket, e.Getenv(EnvCtlSocket), fc.CtlSocket, filepath.Join(dir, "ctl.sock")),
-		SocketMode:     0o660,
-		AllowUnmanaged: fl.allowUnmanaged || fc.AllowUnmanaged,
-		AllowedUIDs:    fc.AllowedUIDs,
-		LogLevel:       firstNonEmpty(fl.logLevel, fc.LogLevel, "info"),
-		Storage:        loadStorage(fc.Storage, e),
-		Metrics:        Metrics{Listen: fc.Metrics.Listen, AllowNonLoopback: fc.Metrics.AllowNonLoopback},
-		OverridesPath:  firstNonEmpty(fc.OverridesPath, filepath.Join(DefaultStateDir(e), "overrides.json")),
+		SocketPath:      firstNonEmpty(fl.socket, e.Getenv(EnvSocket), fc.Socket, filepath.Join(dir, "core.sock")),
+		CtlSocketPath:   firstNonEmpty(fl.ctlSocket, e.Getenv(EnvCtlSocket), fc.CtlSocket, filepath.Join(dir, "ctl.sock")),
+		SocketMode:      0o660,
+		AllowUnmanaged:  fl.allowUnmanaged || fc.AllowUnmanaged,
+		AllowedUIDs:     fc.AllowedUIDs,
+		LogLevel:        firstNonEmpty(fl.logLevel, fc.LogLevel, "info"),
+		Storage:         loadStorage(fc.Storage, e),
+		Metrics:         Metrics{Listen: fc.Metrics.Listen, AllowNonLoopback: fc.Metrics.AllowNonLoopback},
+		OverridesPath:   firstNonEmpty(fc.OverridesPath, filepath.Join(DefaultStateDir(e), "overrides.json")),
+		EngineStatePath: firstNonEmpty(fc.EngineStatePath, filepath.Join(DefaultStateDir(e), "engine-state.json")),
 	}
 	if err := c.loadScalars(fc); err != nil {
 		return nil, err
@@ -87,7 +94,10 @@ func (c *Config) loadScalars(fc fileConfig) (err error) {
 	if c.StatusInterval, err = parseDur("status_interval", fc.StatusInterval, 5*time.Second); err != nil {
 		return err
 	}
-	c.CommandTimeout, err = parseDur("command_timeout", fc.CommandTimeout, 5*time.Second)
+	if c.CommandTimeout, err = parseDur("command_timeout", fc.CommandTimeout, 5*time.Second); err != nil {
+		return err
+	}
+	c.EngineStateInterval, err = parseDur("engine_state_interval", fc.EngineStateInterval, 60*time.Second)
 	return err
 }
 
@@ -121,6 +131,9 @@ func (c *Config) validateCore() error {
 	}
 	if c.StatusInterval <= 0 || c.CommandTimeout <= 0 {
 		return errors.New("status_interval e command_timeout devem ser positivos")
+	}
+	if c.EngineStateInterval < 0 {
+		return errors.New("engine_state_interval nao pode ser negativo (use 0 para gravar so no encerramento)")
 	}
 	return nil
 }

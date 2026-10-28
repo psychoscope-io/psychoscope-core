@@ -17,6 +17,7 @@ import (
 	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
 	"github.com/psychoscope-io/psychoscope-core/internal/detection"
 	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
+	"github.com/psychoscope-io/psychoscope-core/internal/enginestate"
 	"github.com/psychoscope-io/psychoscope-core/internal/ipc"
 	"github.com/psychoscope-io/psychoscope-core/internal/metrics"
 	"github.com/psychoscope-io/psychoscope-core/internal/settings"
@@ -40,6 +41,8 @@ type daemon struct {
 	sup       *supervisor.Supervisor
 	engine    *detection.Engine
 	rules     int
+	// stateSaver grava o estado do motor em disco; nulo com EngineStatePath vazio.
+	stateSaver *enginestate.Saver
 	// appliedRules e a configuracao das regras que o motor roda agora; liveSettings a compara
 	// com a nova para saber quais regras recomecam sem estado.
 	appliedRules rules.Config
@@ -143,13 +146,14 @@ func (d *daemon) buildEngine() error {
 		Window: d.cfg.Detection.Window, MaxEvents: d.cfg.Detection.MaxEvents, QueueSize: d.cfg.Detection.QueueSize,
 		Logger: d.log.With("componente", "deteccao"),
 	}, ruleSet, d.bus)
+	d.openEngineState()
 	return nil
 }
 
 // gather monta o instantaneo de metricas (usado pelo ctl e pelo endpoint HTTP).
 func (d *daemon) gather() []*psychoscopev1.Metrica {
 	return metrics.Gather(func() []*psychoscopev1.Metrica {
-		return collect(d.started, d.engine, d.store, d.persister, d.sup)
+		return collect(d.started, d.engine, d.store, d.persister, d.sup, d.stateSaver)
 	})
 }
 
@@ -216,7 +220,7 @@ func (d *daemon) logStarted() {
 // serve inicia as goroutines, espera ctx terminar e encerra tudo na ordem certa.
 func (d *daemon) serve(ctx context.Context) {
 	netCtx, stopNet := context.WithCancel(context.Background())
-	var wgNet, wgEngine, wgPersist sync.WaitGroup
+	var wgNet, wgEngine, wgPersist, wgState sync.WaitGroup
 	wgNet.Add(2)
 	go func() { defer wgNet.Done(); _ = d.srv.Serve(netCtx) }()
 	go func() { defer wgNet.Done(); _ = d.ctl.Serve(netCtx) }()
@@ -227,6 +231,11 @@ func (d *daemon) serve(ctx context.Context) {
 	engCtx, stopEngine := context.WithCancel(context.Background())
 	wgEngine.Add(1)
 	go func() { defer wgEngine.Done(); d.engine.Run(engCtx) }()
+	stateCtx, stopState := context.WithCancel(context.Background())
+	if d.stateSaver != nil {
+		wgState.Add(1)
+		go func() { defer wgState.Done(); d.stateSaver.Run(stateCtx) }()
+	}
 	persistCtx, stopPersist := context.WithCancel(context.Background())
 	if d.persister != nil {
 		wgPersist.Add(1)
@@ -239,9 +248,12 @@ func (d *daemon) serve(ctx context.Context) {
 	d.ctl.Shutdown()
 	d.srv.Shutdown()
 	wgNet.Wait()
+	stopState() // o gravador pede copias ao motor: para antes dele...
+	wgState.Wait()
 	stopEngine() // o motor esvazia a fila antes de parar...
 	wgEngine.Wait()
-	stopPersist() // ...e so entao o gravador faz a ultima gravacao
+	d.saveFinalEngineState() // ...e o estado final so e lido com o motor parado
+	stopPersist()            // ...e so entao o gravador faz a ultima gravacao
 	wgPersist.Wait()
 	es := d.engine.Stats()
 	d.log.Info("psychoscope-core encerrado", "eventos_processados", es.Processed, "eventos_descartados", es.Dropped, "alertas", es.Alerts)

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/detection"
+	"github.com/psychoscope-io/psychoscope-core/internal/enginestate"
 	"github.com/psychoscope-io/psychoscope-core/internal/metrics"
 	"github.com/psychoscope-io/psychoscope-core/internal/store"
 	"github.com/psychoscope-io/psychoscope-core/internal/supervisor"
@@ -12,9 +13,12 @@ import (
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
-// collect monta o instantaneo de metricas do Core. st e persister podem ser nulos.
-func collect(started time.Time, engine *detection.Engine, st *store.Store, persister *store.Persister, sup *supervisor.Supervisor) []*psychoscopev1.Metrica {
+// collect monta o instantaneo de metricas do Core. st, persister e saver podem ser nulos.
+func collect(started time.Time, engine *detection.Engine, st *store.Store, persister *store.Persister, sup *supervisor.Supervisor, saver *enginestate.Saver) []*psychoscopev1.Metrica {
 	ms := append(coreMetrics(started), engineMetrics(engine.Stats())...)
+	if saver != nil {
+		ms = append(ms, engineStateMetrics(saver)...)
+	}
 	if st != nil {
 		ms = append(ms, storeMetrics(st, persister)...)
 	}
