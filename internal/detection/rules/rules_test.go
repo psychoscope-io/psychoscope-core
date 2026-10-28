@@ -238,6 +238,40 @@ func TestNXDomainReverseZonesDoNotMaskARealBurst(t *testing.T) {
 	}
 }
 
+// srvLookups sao n consultas SRV de descoberta de servico (o que o apt faz) que voltam NXDOMAIN.
+func srvLookups(n int) []*psychoscopev1.EventoFluxoRede {
+	var evs []*psychoscopev1.EventoFluxoRede
+	for i := 0; i < n; i++ {
+		evs = append(evs, dnsResp(float64(i)*0.5, "192.168.0.8", fmt.Sprintf("_https._tcp.host%d.example.com", i), 3))
+	}
+	return evs
+}
+
+func TestNXDomainIgnoresServiceDiscoveryNames(t *testing.T) {
+	if as := run(t, Default(), srvLookups(30)...); len(as) != 0 {
+		t.Fatalf("consultas SRV (_https._tcp.*) nao sao DGA: %v", names(as))
+	}
+}
+
+func TestNXDomainServiceDiscoveryDoesNotMaskARealBurst(t *testing.T) {
+	// 9 nomes diretos aleatorios mais 30 SRV: so os diretos contam, e 9 < min_responses (10)
+	evs := srvLookups(30)
+	for i := 0; i < 9; i++ {
+		evs = append(evs, dnsResp(float64(20+i)*0.5, "192.168.0.8", fmt.Sprintf("xk%dqz.example.com", i), 3))
+	}
+	if as := run(t, Default(), evs...); len(as) != 0 {
+		t.Fatalf("SRV nao somam para o limiar: %v", names(as))
+	}
+	// com 12 nomes diretos o DGA continua sendo detectado, misturado aos SRV
+	for i := 9; i < 12; i++ {
+		evs = append(evs, dnsResp(float64(20+i)*0.5, "192.168.0.8", fmt.Sprintf("xk%dqz.example.com", i), 3))
+	}
+	as := run(t, Default(), evs...)
+	if len(as) != 1 || as[0].Contexto["dominios_distintos"] != "10" || strings.Contains(as[0].Contexto["dominios_exemplo"], "_https") {
+		t.Fatalf("DGA misturado a SRV deve alertar so com os nomes diretos: %v", as)
+	}
+}
+
 func TestNXDomainEmptyIgnoreSuffixesCountsEverything(t *testing.T) {
 	cfg := Default()
 	cfg.NXDomain.IgnoreSuffixes = nil

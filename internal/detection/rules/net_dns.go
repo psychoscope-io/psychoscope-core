@@ -35,11 +35,17 @@ func isNX(ev *detection.Event) bool {
 	return d != nil && d.EhResposta && d.CodigoResposta == rcodeNXDomain
 }
 
-// counts informa se a resposta entra na contagem: e NXDOMAIN e o nome consultado nao termina
-// em nenhum ignore_suffixes (DNS reverso de redes privadas nao e DGA).
+// counts informa se a resposta entra na contagem: e NXDOMAIN, o nome consultado nao termina
+// em nenhum ignore_suffixes (DNS reverso de redes privadas nao e DGA) e nao e de descoberta de
+// servico (primeiro rotulo comecando por "_", como _https._tcp.host, que o apt e outros
+// clientes consultam e costuma dar NXDOMAIN). Um DGA gera nomes comuns, sem esse prefixo.
 func (r *NXDomainBurst) counts(ev *detection.Event) bool {
-	return isNX(ev) && !hasDomainSuffix(ev.DNS().DominioConsultado, r.ignore)
+	return isNX(ev) && !isServiceDiscovery(ev.DNS().DominioConsultado) && !hasDomainSuffix(ev.DNS().DominioConsultado, r.ignore)
 }
+
+// isServiceDiscovery informa se o primeiro rotulo do nome comeca por "_" (registros SRV/TXT de
+// descoberta de servico).
+func isServiceDiscovery(name string) bool { return strings.HasPrefix(name, "_") }
 
 // Key: o cliente e o destino da resposta.
 func (r *NXDomainBurst) Key(ev *detection.Event) (string, bool) {
