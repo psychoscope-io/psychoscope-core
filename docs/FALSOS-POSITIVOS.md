@@ -29,6 +29,10 @@ se um ajuste o resolve; o pcap fica no repositório para a regra nunca voltar a 
    psychoscope-cli analyze --fail-on-alert --rule net.beacon fp-beacon.pcap
    ```
 
+## Corrigir a regra ou documentar a exceção
+
+Nem todo falso positivo se resolve mexendo no padrão. Se o sinal que a regra usa não separa o legítimo do ataque (o `net.beacon` em reconexão periódica é o caso), afrouxar o limiar só esconde o ataque real em todas as máquinas: mantenha o padrão, registre a exceção no `.ajuste` do caso e explique a decisão em `docs/REGRAS.md`. Só quando houver um sinal novo que distinga os dois, corrija a regra e esvazie o `.esperado` no mesmo commit.
+
 ## O que pode entrar num repositório público
 
 Só pcap **sintético ou anonimizado**: sem endereços, nomes (SNI, consultas DNS) nem conteúdo de máquinas reais. Reescreva endereços para as faixas de

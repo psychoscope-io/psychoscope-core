@@ -2,7 +2,7 @@
 
 Uma seção por regra: o que ela detecta, por que importa, o que olhar quando dispara, o que costuma ser falso positivo e como ajustar. Os valores padrão são os de `rules.Default()`; todos se alteram sem reiniciar o serviço (veja [Ajustar uma regra](#ajustar-uma-regra)).
 
-Sobre os falsos positivos: cada seção separa o que **já foi visto em máquina real** do que é **esperado pela natureza da heurística** e ainda não foi confirmado. Só o `net.beacon` tem ocorrência observada até agora. As demais listas são hipóteses fundamentadas e serão confirmadas ou corrigidas pelo catálogo de falsos positivos do roadmap (Marco 1).
+Sobre os falsos positivos: cada seção separa o que **já foi visto em máquina real** do que é **esperado pela natureza da heurística** e ainda não foi confirmado. Só o `net.beacon` tem ocorrência observada até agora. As demais listas são hipóteses fundamentadas e serão confirmadas ou corrigidas pelo catálogo de falsos positivos do roadmap (Marco 1). Quando um falso positivo não tem como ser separado do ataque pelo sinal que a regra usa, a decisão registrada é manter o padrão e documentar a exceção, não afrouxar o limiar.
 
 ## Como ler um alerta
 
@@ -203,7 +203,7 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 **O que investigar.** Qual programa contata o alvo? Identifique pelo destino (`ss -tpn`, `lsof -i`) e pelo intervalo: um valor redondo (60 s, 5 min) é típico de software, tanto legítimo quanto malicioso.
 
 **Falsos positivos.**
-- *Observado em máquina real:* aplicativos de mensagens e outros que mantêm conexão viva com *keepalive* (por exemplo, destinos que parecem de mensageiros, com cerca de 91 s e 0 % de variação).
+- *Observado em máquina real:* aplicativos de mensagens e outros que reabrem a conexão em intervalo fixo (por exemplo, destinos que parecem de mensageiros, com cerca de 91 s e 0 % de variação). **Os limiares padrão não mudam por causa disso**: pelo tempo dos contatos, esse tráfego e um beacon real são indistinguíveis (a regularidade é justamente o sinal), e afrouxar o padrão esconderia o beacon verdadeiro em todas as máquinas. A saída é a exceção por destino, que é local e explícita. O caso está no catálogo (`beacon-keepalive`, no `mod-net-sensor`): com os padrões a regra dispara, e `--set detection.beacon.ignore_destinations=<ip>` no `psychoscope-cli analyze` o silencia; o teste do catálogo garante as duas coisas.
 - *Esperados (ainda não observados):* verificação de atualização periódica, sincronização de relógio, agentes de monitoramento, clientes de e-mail e de sincronização em nuvem.
 
 **Como ajustar.** É a regra com mais opções: `ignore_destinations` (IPs ou CIDRs de destino TCP), `ignore_domains` (nome exato ou sufixo), `ignore_ports`. A tecla `i` do alerta sugere o destino ou o domínio. Para tornar a regra mais exigente: subir `min_samples` ou baixar `max_cv`.
