@@ -142,3 +142,27 @@ func TestEngineStateIsDroppedForRulesWithAChangedThreshold(t *testing.T) {
 	startDaemon(t, tuned)
 	waitAlerts(t, cl, 2)
 }
+
+// Uma partida sem nenhum evento processado nao reescreve o arquivo: ele fica como foi gravado,
+// com o instante original, em vez de ser renovado a cada reinicio sem trafego.
+func TestShutdownWithoutEventsKeepsTheStateFileUntouched(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state", "engine-state.json")
+	cl := &ctl.Client{Path: filepath.Join(dir, "ctl.sock")}
+	stop := startDaemon(t, stateCfg(dir, statePath))
+	waitAlerts(t, cl, 1)
+	stop()
+	before, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	idle := stateCfg(dir, statePath)
+	idle.Modules = nil // nenhum modulo: o motor nao processa nada
+	stop = startDaemon(t, idle)
+	stop()
+	after, err := os.ReadFile(statePath)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("o arquivo nao pode mudar sem eventos: %v", err)
+	}
+}

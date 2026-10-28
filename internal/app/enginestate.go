@@ -26,9 +26,11 @@ func (d *daemon) openEngineState() {
 	d.stateSaver = &enginestate.Saver{Store: store, Source: d.engine, Interval: d.cfg.EngineStateInterval, Log: log}
 }
 
-// saveFinalEngineState grava o estado depois que o motor parou (State exige Run encerrado).
+// saveFinalEngineState grava o estado depois que o motor parou (State exige Run encerrado). Sem
+// nenhum evento processado nesta execucao nada mudou: o arquivo restaurado fica como esta, com o
+// instante em que foi gravado, em vez de ser renovado a cada partida sem trafego.
 func (d *daemon) saveFinalEngineState() {
-	if d.stateSaver != nil {
+	if d.stateSaver != nil && d.engine.Stats().Processed > 0 {
 		d.stateSaver.Save(d.engine.State())
 	}
 }

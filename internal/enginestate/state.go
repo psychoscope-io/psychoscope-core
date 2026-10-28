@@ -20,25 +20,23 @@ const (
 	// DefaultInterval e a frequencia padrao do snapshot periodico.
 	DefaultInterval = 60 * time.Second
 
-	// MaxAge e a idade maxima (relogio de parede) de um arquivo restaurado: depois de uma
-	// parada longa as series do beacon ja expiraram e os cooldowns venceram.
-	MaxAge = 6 * time.Hour
-
 	// maxFutureSkew tolera um relogio levemente adiantado ao salvar. Um arquivo mais "novo" que
 	// isso indica que o relogio voltou atras, e restaurar deixaria o beacon cego (ele rejeita
-	// eventos mais antigos que o ultimo visto).
-	maxFutureSkew = 5 * time.Minute
+	// eventos mais antigos que o ultimo visto) pelo tempo do salto; saltos menores que o limite
+	// passam. Nao ha idade maxima: o estado expira sozinho, no tempo dos eventos, e uma parada
+	// longa so deixa entradas que a primeira atividade descarta.
+	maxFutureSkew = time.Minute
 
-	// maxFileSize limita a leitura antes de alocar: o arquivo e entrada nao confiavel.
-	maxFileSize = 64 << 20
+	// maxFileSize limita a leitura e a gravacao: o arquivo e entrada nao confiavel, e o beacon
+	// exporta no maximo 30 mil series (cerca de 25 MB), entao um arquivo legitimo cabe com folga.
+	maxFileSize = 32 << 20
 )
 
 // Motivos pelos quais um arquivo existente nao e restaurado.
 var (
 	ErrVersion = errors.New("versao do formato desconhecida")
-	ErrStale   = errors.New("estado velho demais")
 	ErrFuture  = errors.New("estado salvo no futuro (o relogio voltou atras?)")
-	ErrTooBig  = errors.New("arquivo grande demais")
+	ErrTooBig  = errors.New("estado grande demais para o arquivo")
 )
 
 // Store le e grava o snapshot em Path (modo 0600, diretorio 0750). Now e o relogio de parede.
@@ -55,7 +53,7 @@ func (s Store) now() time.Time {
 }
 
 // Load le o snapshot. Arquivo ausente devolve (nil, nil). Qualquer outro problema (ilegivel,
-// versao desconhecida, velho demais, no futuro) devolve um erro: o chamador registra e segue vazio.
+// versao desconhecida, no futuro, grande demais) devolve um erro: o chamador registra e segue vazio.
 func (s Store) Load() (*detection.Snapshot, error) {
 	f, err := os.Open(s.Path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -79,12 +77,8 @@ func (s Store) Load() (*detection.Snapshot, error) {
 	if snap.Versao != detection.SnapshotVersion {
 		return nil, fmt.Errorf("%w: %d", ErrVersion, snap.Versao)
 	}
-	age := s.now().Sub(snap.SalvoEm)
-	switch {
-	case age < -maxFutureSkew:
+	if s.now().Sub(snap.SalvoEm) < -maxFutureSkew {
 		return nil, ErrFuture
-	case age > MaxAge:
-		return nil, fmt.Errorf("%w: salvo ha %s", ErrStale, age.Round(time.Second))
 	}
 	return &snap, nil
 }
@@ -97,6 +91,9 @@ func (s Store) Save(snap *detection.Snapshot) error {
 	data, err := json.Marshal(snap)
 	if err != nil {
 		return err
+	}
+	if len(data) > maxFileSize { // Load recusaria o arquivo: melhor falhar aqui, visivel nas metricas
+		return fmt.Errorf("%w (%d bytes, limite %d)", ErrTooBig, len(data), maxFileSize)
 	}
 	dir := filepath.Dir(s.Path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {

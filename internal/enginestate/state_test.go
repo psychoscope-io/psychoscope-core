@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -82,8 +83,8 @@ func TestLoadRejectsUnusableFiles(t *testing.T) {
 		{"campo desconhecido", `{"versao":1,"salvo_em":` + at(0) + `,"x":1}`, nil},
 		{"versao futura", `{"versao":2,"salvo_em":` + at(0) + `}`, ErrVersion},
 		{"sem versao", `{"salvo_em":` + at(0) + `}`, ErrVersion},
-		{"velho demais", `{"versao":1,"salvo_em":` + at(-MaxAge-time.Minute) + `}`, ErrStale},
 		{"no futuro (relogio voltou)", `{"versao":1,"salvo_em":` + at(10*time.Minute) + `}`, ErrFuture},
+		{"no futuro por 2 min", `{"versao":1,"salvo_em":` + at(2*time.Minute) + `}`, ErrFuture},
 		{"tamanho gigante", `{"versao":1,"salvo_em":` + at(0) + `,"regras":{"x":"` + strings.Repeat("a", maxFileSize) + `"}}`, ErrTooBig},
 	}
 	for _, c := range cases {
@@ -97,13 +98,13 @@ func TestLoadRejectsUnusableFiles(t *testing.T) {
 		})
 	}
 	s := storeAt(t, clock)
-	write(t, s, `{"versao":1,"salvo_em":`+at(-time.Hour)+`}`)
+	write(t, s, `{"versao":1,"salvo_em":`+at(-48*time.Hour)+`}`)
 	if snap, err := s.Load(); snap == nil || err != nil {
-		t.Fatalf("estado de uma hora atras deve ser aceito: %v %v", snap, err)
+		t.Fatalf("nao ha idade maxima: o estado expira sozinho, no tempo dos eventos: %v %v", snap, err)
 	}
-	write(t, s, `{"versao":1,"salvo_em":`+at(2*time.Minute)+`}`)
+	write(t, s, `{"versao":1,"salvo_em":`+at(30*time.Second)+`}`)
 	if snap, err := s.Load(); snap == nil || err != nil {
-		t.Fatalf("relogio adiantado ate 5 min e tolerado: %v %v", snap, err)
+		t.Fatalf("relogio adiantado ate 1 min e tolerado: %v %v", snap, err)
 	}
 }
 
@@ -124,10 +125,13 @@ func TestSaveFailureKeepsThePreviousFile(t *testing.T) {
 }
 
 type fakeSource struct {
-	snap  *detection.Snapshot
-	err   error
-	calls chan struct{}
+	snap      *detection.Snapshot
+	err       error
+	calls     chan struct{}
+	processed atomic.Uint64
 }
+
+func (f *fakeSource) Stats() detection.Stats { return detection.Stats{Processed: f.processed.Load()} }
 
 func (f *fakeSource) Snapshot(context.Context) (*detection.Snapshot, error) {
 	select {
@@ -140,6 +144,7 @@ func (f *fakeSource) Snapshot(context.Context) (*detection.Snapshot, error) {
 func TestSaverWritesPeriodicallyAndCountsErrors(t *testing.T) {
 	s := storeAt(t, clock)
 	src := &fakeSource{snap: sample(), calls: make(chan struct{}, 100)}
+	src.processed.Store(1)
 	sv := &Saver{Store: s, Source: src, Interval: 10 * time.Millisecond, Log: discardLogger()}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -152,12 +157,14 @@ func TestSaverWritesPeriodicallyAndCountsErrors(t *testing.T) {
 		if time.Now().After(end) {
 			t.Fatal("o saver nao gravou periodicamente")
 		}
+		src.processed.Add(1) // chegam eventos: o estado mudou e a proxima rodada grava
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
 	<-done
 
 	src.err = errors.New("motor parado")
+	src.processed.Store(2)
 	sv2 := &Saver{Store: s, Source: src, Interval: 10 * time.Millisecond, Log: discardLogger()}
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	done2 := make(chan struct{})
@@ -166,6 +173,7 @@ func TestSaverWritesPeriodicallyAndCountsErrors(t *testing.T) {
 		if _, errs := sv2.Stats(); errs >= 1 {
 			break
 		}
+		src.processed.Add(1)
 		if time.Now().After(end) {
 			t.Fatal("falha do motor deve ser contada")
 		}
@@ -188,5 +196,50 @@ func TestSaverWithZeroIntervalDoesNotRunPeriodically(t *testing.T) {
 	sv.Save(sample())
 	if saves, _ := sv.Stats(); saves != 1 {
 		t.Fatalf("Save manual deve contar: %d", saves)
+	}
+}
+
+func TestSaverSkipsTheWriteWhenNoEventWasProcessed(t *testing.T) {
+	s := storeAt(t, clock)
+	src := &fakeSource{snap: sample(), calls: make(chan struct{}, 1000)}
+	sv := &Saver{Store: s, Source: src, Interval: 5 * time.Millisecond, Log: discardLogger()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go sv.Run(ctx)
+
+	time.Sleep(60 * time.Millisecond) // varios ticks sem nenhum evento processado
+	if saves, errs := sv.Stats(); saves != 0 || errs != 0 {
+		t.Fatalf("sem eventos nada deve ser gravado: %d gravacoes, %d erros", saves, errs)
+	}
+	if _, err := os.Stat(s.Path); !os.IsNotExist(err) {
+		t.Fatalf("o arquivo nao deve nem ser criado: %v", err)
+	}
+	src.processed.Store(5)
+	end := time.Now().Add(3 * time.Second)
+	for saves, _ := sv.Stats(); saves != 1; saves, _ = sv.Stats() {
+		if time.Now().After(end) {
+			t.Fatal("com eventos novos o saver deve gravar uma vez")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(60 * time.Millisecond) // sem eventos novos, continua em uma gravacao
+	if saves, _ := sv.Stats(); saves != 1 {
+		t.Fatalf("sem eventos novos nao regrava: %d", saves)
+	}
+}
+
+func TestSaveRefusesAStateLargerThanTheReadLimit(t *testing.T) {
+	s := storeAt(t, clock)
+	if err := s.Save(sample()); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(s.Path)
+	big := sample()
+	big.Regras = map[string]any{"x": strings.Repeat("a", maxFileSize)}
+	if err := s.Save(big); !errors.Is(err, ErrTooBig) {
+		t.Fatalf("esperava ErrTooBig, veio %v", err)
+	}
+	if after, _ := os.ReadFile(s.Path); string(after) != string(before) {
+		t.Fatal("o arquivo anterior deve ficar intacto")
 	}
 }
