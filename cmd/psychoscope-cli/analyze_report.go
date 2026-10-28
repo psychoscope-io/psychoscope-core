@@ -137,7 +137,7 @@ func (an *analysis) writeJSON(out io.Writer) error {
 			ctx = map[string]string{}
 		}
 		tecnica := ""
-		if t, ok := rules.TechniqueOf(a.Regra); ok {
+		if t, ok := rules.TechniqueOf(a); ok {
 			tecnica = t.String()
 		}
 		j.Alertas = append(j.Alertas, jsonAlert{

@@ -81,7 +81,7 @@ func formatAlertAt(ts string, a *psychoscopev1.Alerta, verbose bool) string {
 	for _, k := range keys {
 		b.WriteString("\n    " + k + "=" + a.Contexto[k])
 	}
-	if t, ok := rules.TechniqueOf(a.Regra); ok {
+	if t, ok := rules.TechniqueOf(a); ok {
 		b.WriteString("\n    tecnica=" + t.String())
 	}
 	return b.String()

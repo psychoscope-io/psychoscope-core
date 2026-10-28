@@ -14,6 +14,9 @@ func TestReferencePageCoversEveryRule(t *testing.T) {
 		t.Fatalf("pagina de referencia ausente: %v", err)
 	}
 	doc := string(raw)
+	if !strings.Contains(doc, "ATT&CK Enterprise "+attackVersion) {
+		t.Errorf("docs/REGRAS.md deve dizer contra qual versao do ATT&CK o mapa foi conferido (%s)", attackVersion)
+	}
 	for _, name := range AllNames() {
 		_, rest, found := strings.Cut(doc, "\n## `"+name+"`")
 		if !found {
@@ -26,13 +29,19 @@ func TestReferencePageCoversEveryRule(t *testing.T) {
 				t.Errorf("secao de %s sem %q", name, part)
 			}
 		}
-		// a pagina diz o mesmo que a tabela: a tecnica (com ID, nome e link) ou o "sem tecnica"
-		if tech, ok := TechniqueOf(name); ok {
+		// a pagina diz o mesmo que as tabelas: cada tecnica possivel (ID, nome e link) ou o motivo de nao ter
+		for _, tech := range possibleTechniques(name) {
 			if want := "[" + tech.String() + "](" + tech.URL() + ")"; !strings.Contains(section, want) {
 				t.Errorf("secao de %s sem a tecnica %s", name, want)
 			}
-		} else if !strings.Contains(section, "**Técnica MITRE ATT&CK.** Sem técnica equivalente") {
-			t.Errorf("secao de %s deveria dizer que nao tem tecnica equivalente", name)
+		}
+		if reason, none := noTechnique[name]; none {
+			if want := "**Técnica MITRE ATT&CK.** Sem técnica equivalente: " + reason; !strings.Contains(section, want) {
+				t.Errorf("secao de %s deveria dizer %q", name, want)
+			}
+		}
+		if _, byCtx := contextTechniques[name]; byCtx && !strings.Contains(section, "`tipo=tcp`") {
+			t.Errorf("secao de %s deveria dizer o que acontece nos demais valores de tipo (`tipo=tcp`)", name)
 		}
 	}
 }

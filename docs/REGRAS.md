@@ -8,7 +8,7 @@ Sobre os falsos positivos: cada seção separa o que **já foi visto em máquina
 
 - **Severidade:** BAIXA (vale registrar), MÉDIA (vale olhar), ALTA (olhe agora).
 - **Cooldown:** depois de disparar, a regra fica calada para a mesma chave (por exemplo, o mesmo cliente) durante o "Intervalo entre alertas". Isso evita repetir o mesmo alerta, mas significa que a **contagem de alertas não é a contagem de eventos**.
-- **Técnica ATT&CK:** cada regra indica, quando existe, a técnica do [MITRE ATT&CK](https://attack.mitre.org) compatível com o que detectou (`alerts -v`, o detalhe da TUI e o `analyze --json` mostram `ID nome`). É para enquadrar o que foi visto, não um diagnóstico: o alerta é um indício, e as regras sem técnica equivalente dizem isso na própria seção.
+- **Técnica ATT&CK:** cada regra indica, quando existe, a técnica do [MITRE ATT&CK](https://attack.mitre.org) compatível com o que detectou (`alerts -v`, o detalhe da TUI e o `analyze --json` mostram `ID nome`). É para enquadrar o que foi visto, não um diagnóstico: o alerta é um indício, e as regras (ou variantes) sem técnica equivalente dizem isso na própria seção. Os IDs e nomes foram conferidos em attack.mitre.org contra o ATT&CK Enterprise v20, em 2026-10-28; ao revisar a tabela (`rules/techniques.go`), confira de novo e atualize `attackVersion`.
 - **Contexto:** `psychoscope-cli alerts -v` (ou `Enter` no alerta, na TUI) mostra as chaves que explicam o disparo. Cada seção abaixo lista as suas.
 - **Tempo:** todas as janelas são medidas no instante dos eventos de rede, não no relógio da máquina.
 
@@ -213,7 +213,7 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Padrões.** ≥8 contatos regulares; intervalo médio de 5 s a 1 h; variação (desvio dividido pela média) ≤0,2; cooldown 30 min; acompanha até 50.000 séries. Contatos mais próximos que o intervalo mínimo (5 s) contam como um só. Um silêncio maior que três vezes o intervalo médio reinicia a série.
 
-**Técnica MITRE ATT&CK.** [T1071 Application Layer Protocol](https://attack.mitre.org/techniques/T1071/): Contato periódico com um destino é o padrão de comunicação de comando e controle sobre protocolos comuns. É uma técnica *compatível* com o indício, não confirmada.
+**Técnica MITRE ATT&CK.** No beacon por DNS (`tipo=dns`): [T1071.004 Application Layer Protocol: DNS](https://attack.mitre.org/techniques/T1071/004/), comando e controle sobre DNS. No beacon por SYN (`tipo=tcp`) não há técnica: a regra só vê conexões regulares, sem protocolo de aplicação, e afirmar uma daria precisão que a evidência não tem. É uma técnica *compatível* com o indício, não confirmada.
 
 **Contexto do alerta.** `tipo` (tcp/dns), `origem`, `alvo`, `chave`, `intervalo_medio`, `amostras`, `variacao_pct`.
 

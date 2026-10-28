@@ -256,3 +256,18 @@ func TestTUIRequiresTerminal(t *testing.T) {
 		t.Fatalf("sem tty deve explicar: %v", err)
 	}
 }
+
+func TestFormatAlertTechniqueFollowsTheBeaconType(t *testing.T) {
+	beacon := func(tipo string) *psychoscopev1.Alerta {
+		return &psychoscopev1.Alerta{Regra: "net.beacon", Descricao: "d", Contexto: map[string]string{"tipo": tipo}}
+	}
+	if got := formatAlert(beacon("dns"), true); !strings.HasSuffix(got, "\n    tipo=dns\n    tecnica=T1071.004 Application Layer Protocol: DNS") {
+		t.Errorf("beacon por DNS: %q", got)
+	}
+	if got := formatAlert(beacon("tcp"), true); strings.Contains(got, "tecnica=") {
+		t.Errorf("beacon por SYN nao tem tecnica: %q", got)
+	}
+	if got := formatAlert(beacon("dns"), false); strings.Contains(got, "tecnica=") || strings.Contains(got, "\n") {
+		t.Errorf("a saida curta nao muda: %q", got)
+	}
+}
