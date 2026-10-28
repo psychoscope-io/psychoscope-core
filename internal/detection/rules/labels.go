@@ -43,7 +43,7 @@ var contextLabels = map[string]string{
 	"dominios_exemplo": "Domínios de exemplo", "hosts_distintos": "Destinos distintos", "intervalo_medio": "Intervalo médio",
 	"janela": "Janela", "motivo": "Motivo", "origem": "Origem", "porta": "Porta", "portas_distintas": "Portas distintas",
 	"portas_exemplo": "Portas de exemplo", "resolvedor": "Resolvedor", "respostas_nxdomain": "Respostas NXDOMAIN",
-	"sni": "SNI", "tipo": "Tipo", "variacao_pct": "Variação (%)", "versao_tls": "Versão do TLS",
+	"sem_resposta": "Hosts sem resposta", "sni": "SNI", "tipo": "Tipo", "variacao_pct": "Variação (%)", "versao_tls": "Versão do TLS",
 }
 
 // ContextLabel e o nome legivel de uma chave do contexto de alerta; chave desconhecida volta

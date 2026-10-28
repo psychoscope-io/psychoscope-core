@@ -101,8 +101,85 @@ func TestHorizontalScan(t *testing.T) {
 	}
 	as := run(t, Default(), evs...)
 	if len(as) != 1 || as[0].Contexto["tipo"] != "horizontal" || as[0].Severidade != psychoscopev1.Severidade_SEVERIDADE_ALTA ||
-		as[0].Contexto["porta"] != "22" || as[0].Contexto["hosts_distintos"] != "20" {
+		as[0].Contexto["porta"] != "22" || as[0].Contexto["sem_resposta"] != "20" || as[0].Contexto["hosts_distintos"] != "30" {
 		t.Fatalf("alertas: %v %v", names(as), as)
+	}
+}
+
+// synAck e a resposta SYN+ACK do servidor (porta serverPort) ao cliente.
+func synAck(sec float64, server, client string, serverPort uint32) *psychoscopev1.EventoFluxoRede {
+	return &psychoscopev1.EventoFluxoRede{IpOrigem: server, IpDestino: client, PortaOrigem: serverPort, PortaDestino: 40000,
+		Protocolo: psychoscopev1.ProtocoloTransporte_PROTO_TCP, FlagsTcp: detection.FlagSYN | detection.FlagACK, TimestampCaptura: at(sec)}
+}
+
+// browserBurst: cliente abre n conexoes na 443 para hosts distintos, a cada step s, e cada
+// servidor responde SYN-ACK rtt s depois (o que um navegador carregando uma pagina faz). Os
+// eventos saem em ordem de tempo, como o sensor os entrega.
+func browserBurst(n int, step, rtt float64) []*psychoscopev1.EventoFluxoRede {
+	var evs []*psychoscopev1.EventoFluxoRede
+	for h := 1; h <= n; h++ {
+		host := fmt.Sprintf("203.0.113.%d", h)
+		evs = append(evs, syn(float64(h)*step, "192.168.0.8", host, 443), synAck(float64(h)*step+rtt, host, "192.168.0.8", 443))
+	}
+	sortByTime(evs)
+	return evs
+}
+
+func TestHorizontalScanIgnoresHostsThatAnswered(t *testing.T) {
+	// 60 hosts na 443 em 6 s, todos com handshake completo: navegador, nao varredura
+	if as := run(t, Default(), browserBurst(60, 0.1, 0.05)...); len(as) != 0 {
+		t.Fatalf("destinos que responderam SYN-ACK nao sao varredura: %v", names(as))
+	}
+	// rajada muito rapida (30 hosts em 0,3 s) com ida e volta de 0,5 s: ao avaliar cada sonda
+	// nenhuma resposta chegou ainda, mas as sondas novas nao contam como sem resposta
+	evs := append(browserBurst(30, 0.01, 0.5), syn(5, "192.168.0.8", "203.0.113.200", 443))
+	if as := run(t, Default(), evs...); len(as) != 0 {
+		t.Fatalf("rajada rapida com respostas nao e varredura: %v", names(as))
+	}
+}
+
+func TestHorizontalScanStillFiresWithoutAnswers(t *testing.T) {
+	// 30 hosts na 443, nenhum responde: varredura. A ultima sonda de cada 1 s ainda esta "a caminho".
+	var evs []*psychoscopev1.EventoFluxoRede
+	for h := 1; h <= 30; h++ {
+		evs = append(evs, syn(float64(h)*0.1, "10.0.0.66", fmt.Sprintf("203.0.113.%d", h), 443))
+	}
+	as := run(t, Default(), evs...)
+	if len(as) != 1 || as[0].Contexto["tipo"] != "horizontal" || as[0].Contexto["porta"] != "443" {
+		t.Fatalf("varredura da 443 sem respostas deve alertar: %v", as)
+	}
+	// um RST nao e SYN-ACK: o host existe mas a porta nao, tipico de varredura
+	for h := 1; h <= 30; h++ {
+		rst := synAck(float64(h)*0.1+0.02, fmt.Sprintf("203.0.113.%d", h), "10.0.0.66", 443)
+		rst.FlagsTcp = detection.FlagRST | detection.FlagACK
+		evs = append(evs, rst)
+	}
+	if as := run(t, Default(), evs...); len(as) != 1 {
+		t.Fatalf("RST nao conta como resposta: %v", names(as))
+	}
+}
+
+func TestHorizontalScanCountsOnlyUnansweredAndNeedsAFollowUpProbe(t *testing.T) {
+	// 25 hosts sem resposta misturados a 40 que responderam: alerta com os numeros certos
+	evs := browserBurst(40, 0.1, 0.05)
+	for h := 1; h <= 25; h++ {
+		evs = append(evs, syn(float64(h)*0.1, "192.168.0.8", fmt.Sprintf("198.51.100.%d", h), 443))
+	}
+	sortByTime(evs)
+	as := run(t, Default(), evs...)
+	if len(as) != 1 || as[0].Contexto["sem_resposta"] != "20" || as[0].Contexto["hosts_distintos"] == "20" {
+		t.Fatalf("so os sem resposta contam para o limiar: %v", as)
+	}
+	// uma resposta de OUTRO host (ou de outra porta) nao conta como resposta
+	var wrong []*psychoscopev1.EventoFluxoRede
+	for h := 1; h <= 30; h++ {
+		wrong = append(wrong, syn(float64(h)*0.1, "10.0.0.66", fmt.Sprintf("203.0.113.%d", h), 443),
+			synAck(float64(h)*0.1+0.02, "203.0.113.250", "10.0.0.66", 443), // sempre o mesmo servidor, que nao foi sondado
+			synAck(float64(h)*0.1+0.03, fmt.Sprintf("203.0.113.%d", h), "10.0.0.66", 8443))
+	}
+	sortByTime(wrong)
+	if as := run(t, Default(), wrong...); len(as) != 1 {
+		t.Fatalf("resposta de outro host ou porta nao isenta a sonda: %v", names(as))
 	}
 }
 

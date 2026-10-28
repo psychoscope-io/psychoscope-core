@@ -15,7 +15,17 @@ import (
 //   - horizontal: uma origem sonda a mesma porta em muitos destinos distintos (ALTA).
 //
 // Retransmissoes de SYN para o mesmo destino:porta contam uma vez.
+//
+// Na horizontal, so conta o destino que NAO respondeu SYN-ACK a sonda (um navegador completa os
+// handshakes de dezenas de hosts ao carregar uma pagina, uma varredura mira hosts que nao
+// respondem ou respondem RST). Uma sonda mais nova que answerGrace ainda pode estar a caminho da
+// resposta, entao so entra na conta depois disso. Sem ver o sentido de volta (captura so de um
+// lado) nada responde e a regra se comporta como antes.
 type ScanSYN struct{ cfg ScanConfig }
+
+// answerGrace e quanto uma sonda precisa envelhecer, no tempo dos eventos, para ser tida como
+// sem resposta: cobre o tempo de ida e volta ate o servidor.
+const answerGrace = time.Second
 
 func NewScanSYN(cfg ScanConfig) *ScanSYN { return &ScanSYN{cfg} }
 
@@ -29,14 +39,40 @@ func (r *ScanSYN) Key(ev *detection.Event) (string, bool) {
 	return ev.Net.IpOrigem, true
 }
 
-// probes resume as sondas SYN de uma origem na janela: portas por destino e destinos por porta.
+// probes resume as sondas SYN de uma origem na janela: portas por destino, destinos por porta e,
+// destes, os que nao responderam (unansweredByPort).
 type probes struct {
-	portsByDst  map[string]map[uint32]struct{}
-	hostsByPort map[uint32]map[string]struct{}
+	portsByDst       map[string]map[uint32]struct{}
+	hostsByPort      map[uint32]map[string]struct{}
+	unansweredByPort map[uint32]map[string]struct{}
+}
+
+// endpoint e um destino:porta.
+type endpoint struct {
+	ip   string
+	port uint32
+}
+
+// answered devolve os destino:porta que responderam SYN-ACK a origem de ev dentro da janela.
+func (r *ScanSYN) answered(ev *detection.Event, w *detection.Window) map[endpoint]struct{} {
+	out := map[endpoint]struct{}{}
+	cutoff := ev.At.Add(-r.cfg.Window)
+	evs := w.ToDst(ev.Net.IpOrigem)
+	for i, scanned := len(evs)-1, 0; i >= 0 && scanned < r.cfg.MaxScan; i, scanned = i-1, scanned+1 {
+		e := evs[i]
+		if e.At.Before(cutoff) {
+			break
+		}
+		if e.IsTCP() && e.Net.FlagsTcp&detection.FlagSYN != 0 && e.Net.FlagsTcp&detection.FlagACK != 0 {
+			out[endpoint{e.Net.IpOrigem, e.Net.PortaOrigem}] = struct{}{}
+		}
+	}
+	return out
 }
 
 func (r *ScanSYN) collect(ev *detection.Event, w *detection.Window) probes {
-	p := probes{portsByDst: map[string]map[uint32]struct{}{}, hostsByPort: map[uint32]map[string]struct{}{}}
+	p := probes{portsByDst: map[string]map[uint32]struct{}{}, hostsByPort: map[uint32]map[string]struct{}{}, unansweredByPort: map[uint32]map[string]struct{}{}}
+	answered := r.answered(ev, w)
 	cutoff := ev.At.Add(-r.cfg.Window)
 	evs := w.FromSrc(ev.Net.IpOrigem)
 	for i, scanned := len(evs)-1, 0; i >= 0 && scanned < r.cfg.MaxScan; i, scanned = i-1, scanned+1 {
@@ -56,6 +92,12 @@ func (r *ScanSYN) collect(ev *detection.Event, w *detection.Window) probes {
 			p.hostsByPort[port] = map[string]struct{}{}
 		}
 		p.hostsByPort[port][dst] = struct{}{}
+		if _, ok := answered[endpoint{dst, port}]; !ok && ev.At.Sub(e.At) >= answerGrace {
+			if p.unansweredByPort[port] == nil {
+				p.unansweredByPort[port] = map[string]struct{}{}
+			}
+			p.unansweredByPort[port][dst] = struct{}{}
+		}
 	}
 	return p
 }
@@ -70,9 +112,9 @@ func (p probes) busiestDst() (dst string, ports int) {
 	return dst, ports
 }
 
-// busiestPort devolve a porta sondada em mais destinos distintos (empate: menor porta).
+// busiestPort devolve a porta com mais destinos distintos sem resposta (empate: menor porta).
 func (p probes) busiestPort() (port uint32, hosts int) {
-	for pt, hs := range p.hostsByPort {
+	for pt, hs := range p.unansweredByPort {
 		if len(hs) > hosts || (len(hs) == hosts && pt < port) {
 			port, hosts = pt, len(hs)
 		}
@@ -86,7 +128,7 @@ func (r *ScanSYN) Eval(ev *detection.Event, w *detection.Window) *psychoscopev1.
 		return r.verticalAlert(ev, dst, p.portsByDst[dst])
 	}
 	if port, n := p.busiestPort(); n >= r.cfg.HorizontalHosts {
-		return r.horizontalAlert(ev, port, n)
+		return r.horizontalAlert(ev, port, len(p.hostsByPort[port]), n)
 	}
 	return nil
 }
@@ -106,13 +148,13 @@ func (r *ScanSYN) verticalAlert(ev *detection.Event, dst string, portSet map[uin
 		})
 }
 
-func (r *ScanSYN) horizontalAlert(ev *detection.Event, port uint32, hosts int) *psychoscopev1.Alerta {
+func (r *ScanSYN) horizontalAlert(ev *detection.Event, port uint32, hosts, unanswered int) *psychoscopev1.Alerta {
 	src := ev.Net.IpOrigem
 	return detection.NewAlert(NameScanSYN, psychoscopev1.Severidade_SEVERIDADE_ALTA,
-		fmt.Sprintf("Varredura horizontal: %s sondou a porta %d em %d hosts em %s", src, port, hosts, r.cfg.Window),
+		fmt.Sprintf("Varredura horizontal: %s sondou a porta %d em %d hosts (%d sem resposta) em %s", src, port, hosts, unanswered, r.cfg.Window),
 		ev, map[string]string{
 			"tipo": "horizontal", "origem": src, "porta": fmt.Sprint(port),
-			"hosts_distintos": fmt.Sprint(hosts), "janela": r.cfg.Window.String(),
+			"hosts_distintos": fmt.Sprint(hosts), "sem_resposta": fmt.Sprint(unanswered), "janela": r.cfg.Window.String(),
 		})
 }
 
