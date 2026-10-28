@@ -85,6 +85,30 @@ func TestTLSSuspiciousFalsePositives(t *testing.T) {
 	}
 }
 
+func TestTLSAllowedBasesMatchBySuffix(t *testing.T) {
+	const azure = "productionresultssa8.blob.core.windows.net" // rotulo de 20 letras, entropia 3,68: legitimo
+	other := "x7k2m9q4w8z1b5n3v6c0.evil.windows.net"           // mesmo dominio base, outro inquilino
+	hello := func(sni string) *psychoscopev1.EventoFluxoRede {
+		return tlsHello(0, "10.0.0.5", "1.2.3.4", sni, "TLS1.3")
+	}
+
+	if as := run(t, Default(), hello(azure)); len(as) != 1 || as[0].Contexto["motivo"] != "sni_alta_entropia" {
+		t.Fatalf("sem excecao o armazenamento legitimo alerta (falso positivo observado): %v", as)
+	}
+	cfg := Default()
+	cfg.TLS.AllowedBases = []string{"blob.core.windows.net"}
+	if as := run(t, cfg, hello(azure)); len(as) != 0 {
+		t.Fatalf("o sufixo blob.core.windows.net devia isentar: %v", as)
+	}
+	if as := run(t, cfg, hello(other)); len(as) != 1 {
+		t.Fatalf("liberar um subdominio nao libera o dominio base inteiro: %v", as)
+	}
+	cfg.TLS.AllowedBases = []string{"windows.net"} // a lista de dominios base de antes continua valendo
+	if as := run(t, cfg, hello(azure), hello(other)); len(as) != 0 {
+		t.Fatalf("o dominio base continua isentando tudo sob ele: %v", as)
+	}
+}
+
 func TestTLSMissingSNINeedsRepetitionWithinWindow(t *testing.T) {
 	two := []*psychoscopev1.EventoFluxoRede{tlsHello(0, "10.0.0.5", "1.1.1.1", "", "TLS1.3"), tlsHello(1, "10.0.0.5", "1.1.1.2", "", "TLS1.3")}
 	if as := run(t, Default(), two...); len(as) != 0 {

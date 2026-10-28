@@ -13,6 +13,7 @@ const (
 	FieldBeaconIgnoreDomains      = "detection.beacon.ignore_domains"
 	FieldBruteForceIgnoreSources  = "detection.bruteforce.ignore_sources"
 	FieldTunnelAllowedBases       = "detection.tunnel.allowed_bases"
+	FieldTLSAllowedBases          = "detection.tls.allowed_bases"
 )
 
 // Exception diz qual campo de configuracao, e qual valor a acrescentar a ele, faz a regra
@@ -49,8 +50,25 @@ func Exception(a *psychoscopev1.Alerta) (field, value string, ok bool) {
 		if base := ctx["dominio_base"]; base != "" {
 			return FieldTunnelAllowedBases, base, true
 		}
+	case NameTLSSuspicious:
+		// So o motivo de entropia tem excecao por nome. O valor e o SNI sem o primeiro rotulo (o
+		// aleatorio, como o hash por sessao do online-metrix.net): cobre os irmaos e nao libera
+		// o dominio base inteiro. Numa plataforma compartilhada (blob.core.windows.net) isso cobre
+		// outros inquilinos, e e a pessoa que confirma o valor antes de aplicar.
+		if sni := ctx["sni"]; ctx["motivo"] == tlsEntropy && sni != "" {
+			return FieldTLSAllowedBases, parentName(sni), true
+		}
 	}
 	return "", "", false
+}
+
+// parentName tira o primeiro rotulo do nome; um nome de dois rotulos ou menos volta inteiro.
+func parentName(name string) string {
+	name = strings.TrimSuffix(strings.ToLower(name), ".")
+	if i := strings.Index(name, "."); i >= 0 && strings.Count(name, ".") >= 2 {
+		return name[i+1:]
+	}
+	return name
 }
 
 // Covers diz se a lista de excecoes items do campo field ja faz a regra ignorar value, e qual
@@ -69,7 +87,7 @@ func Covers(field string, items []string, value string) (item string, ok bool) {
 			if nets, err := parseSources([]string{it}); err == nil && containsIP(nets, value) {
 				return it, true
 			}
-		case FieldBeaconIgnoreDomains:
+		case FieldBeaconIgnoreDomains, FieldTLSAllowedBases:
 			if hasDomainSuffix(value, normalizeDomains([]string{it})) {
 				return it, true
 			}

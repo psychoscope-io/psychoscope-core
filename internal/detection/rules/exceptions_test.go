@@ -20,21 +20,26 @@ func TestExceptionMapsEachRuleToItsList(t *testing.T) {
 		wantValue string
 		ok        bool
 	}{
-		"beacon tcp IPv4":            {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": "149.154.166.110:443"}), FieldBeaconIgnoreDestinations, "149.154.166.110", true},
-		"beacon tcp IPv6 (varios :)": {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": "2001:67c:4e8:f004::9:443"}), FieldBeaconIgnoreDestinations, "2001:67c:4e8:f004::9", true},
-		"beacon dns":                 {al(NameBeacon, map[string]string{"tipo": "dns", "alvo": "c2.evil.example"}), FieldBeaconIgnoreDomains, "c2.evil.example", true},
-		"bruteforce":                 {al(NameBruteForce, map[string]string{"origem": "10.0.0.66", "destino": "10.0.0.2"}), FieldBruteForceIgnoreSources, "10.0.0.66", true},
-		"tunnel":                     {al(NameDNSTunnel, map[string]string{"dominio_base": "evil-tunnel.com"}), FieldTunnelAllowedBases, "evil-tunnel.com", true},
-		"varredura nao tem lista":    {al(NameScanSYN, map[string]string{"origem": "10.0.0.66"}), "", "", false},
-		"regra desconhecida":         {al("outra.regra", map[string]string{"alvo": "1.2.3.4:80"}), "", "", false},
-		"beacon tcp sem porta":       {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": "149.154.166.110"}), "", "", false},
-		"beacon tcp alvo vazio":      {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": ""}), "", "", false},
-		"beacon tcp nao e IP":        {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": "host:443"}), "", "", false},
-		"beacon sem tipo":            {al(NameBeacon, map[string]string{"alvo": "1.2.3.4:80"}), "", "", false},
-		"beacon dns sem alvo":        {al(NameBeacon, map[string]string{"tipo": "dns"}), "", "", false},
-		"bruteforce origem ruim":     {al(NameBruteForce, map[string]string{"origem": "nao-ip"}), "", "", false},
-		"tunnel sem base":            {al(NameDNSTunnel, map[string]string{}), "", "", false},
-		"alerta vazio":               {&psychoscopev1.Alerta{}, "", "", false},
+		"beacon tcp IPv4":                         {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": "149.154.166.110:443"}), FieldBeaconIgnoreDestinations, "149.154.166.110", true},
+		"beacon tcp IPv6 (varios :)":              {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": "2001:67c:4e8:f004::9:443"}), FieldBeaconIgnoreDestinations, "2001:67c:4e8:f004::9", true},
+		"beacon dns":                              {al(NameBeacon, map[string]string{"tipo": "dns", "alvo": "c2.evil.example"}), FieldBeaconIgnoreDomains, "c2.evil.example", true},
+		"bruteforce":                              {al(NameBruteForce, map[string]string{"origem": "10.0.0.66", "destino": "10.0.0.2"}), FieldBruteForceIgnoreSources, "10.0.0.66", true},
+		"tunnel":                                  {al(NameDNSTunnel, map[string]string{"dominio_base": "evil-tunnel.com"}), FieldTunnelAllowedBases, "evil-tunnel.com", true},
+		"tls entropia: pai do rotulo":             {al(NameTLSSuspicious, map[string]string{"motivo": tlsEntropy, "sni": "productionresultssa8.blob.core.windows.net"}), FieldTLSAllowedBases, "blob.core.windows.net", true},
+		"tls entropia: hash por sessao":           {al(NameTLSSuspicious, map[string]string{"motivo": tlsEntropy, "sni": "8t63q4n4k5uq7jm6qnoch5oiippxdeslncodm3at2b67db2971ad81ffalp.g.aa.online-metrix.net"}), FieldTLSAllowedBases, "g.aa.online-metrix.net", true},
+		"tls entropia: dois rotulos fica inteiro": {al(NameTLSSuspicious, map[string]string{"motivo": tlsEntropy, "sni": "x7k2m9q4w8z1b5n3v6c0.com"}), FieldTLSAllowedBases, "x7k2m9q4w8z1b5n3v6c0.com", true},
+		"tls: outros motivos nao tem lista":       {al(NameTLSSuspicious, map[string]string{"motivo": tlsObsolete, "sni": "legacy.example.com"}), "", "", false},
+		"tls entropia sem sni":                    {al(NameTLSSuspicious, map[string]string{"motivo": tlsEntropy}), "", "", false},
+		"varredura nao tem lista":                 {al(NameScanSYN, map[string]string{"origem": "10.0.0.66"}), "", "", false},
+		"regra desconhecida":                      {al("outra.regra", map[string]string{"alvo": "1.2.3.4:80"}), "", "", false},
+		"beacon tcp sem porta":                    {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": "149.154.166.110"}), "", "", false},
+		"beacon tcp alvo vazio":                   {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": ""}), "", "", false},
+		"beacon tcp nao e IP":                     {al(NameBeacon, map[string]string{"tipo": "tcp", "alvo": "host:443"}), "", "", false},
+		"beacon sem tipo":                         {al(NameBeacon, map[string]string{"alvo": "1.2.3.4:80"}), "", "", false},
+		"beacon dns sem alvo":                     {al(NameBeacon, map[string]string{"tipo": "dns"}), "", "", false},
+		"bruteforce origem ruim":                  {al(NameBruteForce, map[string]string{"origem": "nao-ip"}), "", "", false},
+		"tunnel sem base":                         {al(NameDNSTunnel, map[string]string{}), "", "", false},
+		"alerta vazio":                            {&psychoscopev1.Alerta{}, "", "", false},
 	} {
 		f, v, ok := Exception(tc.a)
 		if f != tc.wantField || v != tc.wantValue || ok != tc.ok {
@@ -105,6 +110,9 @@ func TestSuggestedExceptionSilencesTheSameTrafficOnly(t *testing.T) {
 			}
 			return evs
 		}, "evil-tunnel.com", "other-tunnel.com", NameDNSTunnel},
+		"tls entropia": {func(w string) []*psychoscopev1.EventoFluxoRede {
+			return []*psychoscopev1.EventoFluxoRede{tlsHello(0, "10.0.0.5", "1.2.3.4", "x7k2m9q4w8z1b5n3v6c0."+w, "TLS1.3")}
+		}, "evil-cdn.com", "other-cdn.com", NameTLSSuspicious},
 	} {
 		as := run(t, Default(), tc.traffic(tc.who)...)
 		if len(as) != 1 || as[0].Regra != tc.rule {
@@ -132,7 +140,7 @@ func TestSuggestedExceptionSilencesTheSameTrafficOnly(t *testing.T) {
 // Os campos de excecao existem no catalogo e sao listas: se alguem renomear um campo, falha aqui.
 func TestExceptionFieldsExistInTheRuleConfig(t *testing.T) {
 	c := Default()
-	for _, path := range []string{FieldBeaconIgnoreDestinations, FieldBeaconIgnoreDomains, FieldBruteForceIgnoreSources, FieldTunnelAllowedBases} {
+	for _, path := range []string{FieldBeaconIgnoreDestinations, FieldBeaconIgnoreDomains, FieldBruteForceIgnoreSources, FieldTunnelAllowedBases, FieldTLSAllowedBases} {
 		listField(t, &c, path)
 	}
 }
@@ -154,6 +162,8 @@ func TestCoversUsesTheSameMatchingAsTheRules(t *testing.T) {
 		"outro dominio":             {FieldBeaconIgnoreDomains, []string{"example.com"}, "notexample.com", "", false},
 		"base exata":                {FieldTunnelAllowedBases, []string{"cdn.net"}, "cdn.net", "cdn.net", true},
 		"base nao cobre subdominio": {FieldTunnelAllowedBases, []string{"cdn.net"}, "a.cdn.net", "", false},
+		"tls cobre subdominio":      {FieldTLSAllowedBases, []string{"blob.core.windows.net"}, "contaa.blob.core.windows.net", "blob.core.windows.net", true},
+		"tls nao cobre o irmao":     {FieldTLSAllowedBases, []string{"blob.core.windows.net"}, "contaa.queue.core.windows.net", "", false},
 		"item invalido e ignorado":  {FieldBeaconIgnoreDestinations, []string{"nao-e-ip"}, "1.2.3.4", "", false},
 	} {
 		item, ok := Covers(tc.field, tc.items, tc.value)

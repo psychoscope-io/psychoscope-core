@@ -3,7 +3,6 @@ package rules
 import (
 	"fmt"
 	"net/netip"
-	"slices"
 	"strings"
 	"time"
 
@@ -23,9 +22,14 @@ const (
 // SNI com rotulo longo e de alta entropia (MEDIA; DGA sobre HTTPS), versao maxima oferecida
 // obsoleta — SSL3/TLS1.0/TLS1.1 (BAIXA) — e ClientHellos repetidos sem SNI (BAIXA).
 // A versao e a MAIOR oferecida pelo cliente, nao a negociada.
-type TLSSuspicious struct{ cfg TLSConfig }
+type TLSSuspicious struct {
+	cfg     TLSConfig
+	allowed []string // allowed_bases normalizados (minusculos, sem ponto)
+}
 
-func NewTLSSuspicious(cfg TLSConfig) *TLSSuspicious { return &TLSSuspicious{cfg} }
+func NewTLSSuspicious(cfg TLSConfig) *TLSSuspicious {
+	return &TLSSuspicious{cfg: cfg, allowed: normalizeDomains(cfg.AllowedBases)}
+}
 
 func (r *TLSSuspicious) Name() string            { return NameTLSSuspicious }
 func (r *TLSSuspicious) Cooldown() time.Duration { return r.cfg.Cooldown }
@@ -55,10 +59,12 @@ func isIPLiteral(s string) bool {
 	return err == nil
 }
 
-// highEntropy: algum rotulo do SNI (exceto o TLD) e longo e aleatorio.
+// highEntropy: algum rotulo do SNI (exceto o TLD) e longo e aleatorio e o SNI nao esta sob
+// nenhum allowed_bases.
 func (r *TLSSuspicious) highEntropy(sni string) bool {
-	base, _ := splitDomain(sni)
-	if slices.Contains(r.cfg.AllowedBases, base) {
+	// Por sufixo: "windows.net" isenta tudo sob ele, e "blob.core.windows.net" so o armazenamento
+	// (a lista antiga, de dominios base, continua valendo: o base e um sufixo do SNI).
+	if hasDomainSuffix(sni, r.allowed) {
 		return false
 	}
 	labels := strings.Split(sni, ".")
