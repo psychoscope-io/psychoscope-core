@@ -19,7 +19,6 @@ import (
 	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	"github.com/psychoscope-io/psychoscope-core/internal/settings"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -187,7 +186,7 @@ type analyzeRun struct {
 
 func cmdAnalyze(ctx context.Context, args []string, out io.Writer) error {
 	return analyzeRun{source: func(explicit string) (eventSource, error) {
-		bin, err := findSensor(explicit)
+		bin, err := findSensor(explicit, sensorUserDir)
 		if err != nil {
 			return nil, fmt.Errorf("analyze: %w", err)
 		}
@@ -265,19 +264,4 @@ func analyzeFailure(err error, timeout time.Duration) error {
 		return errors.New("interrompida")
 	}
 	return err
-}
-
-// noteEvent conta o evento e guarda o primeiro e o ultimo instante de captura.
-func (an *analysis) noteEvent(ts *timestamppb.Timestamp) {
-	an.Events++
-	if ts == nil {
-		return
-	}
-	t := ts.AsTime()
-	if an.First.IsZero() || t.Before(an.First) {
-		an.First = t
-	}
-	if t.After(an.Last) {
-		an.Last = t
-	}
 }

@@ -58,6 +58,21 @@ func fakeSensor(mode string) {
 		time.Sleep(time.Minute)
 		return
 	}
+	if mode == "reconnect" { // cai no meio do replay e volta (como o backoff do sensor real), mandando o resto
+		fakeSession(sock, scanEvents(30)[:10])
+		time.Sleep(150 * time.Millisecond) // o Core precisa ter encerrado a sessao anterior
+		fakeSession(sock, scanEvents(30)[10:])
+		return
+	}
+	if mode == "empty" {
+		fakeSession(sock, nil)
+		return
+	}
+	fakeSession(sock, scanEvents(30))
+}
+
+// fakeSession conecta, faz o Hello, envia os eventos e fecha a conexao.
+func fakeSession(sock string, events []*psychoscopev1.EventoFluxoRede) {
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
 		os.Exit(10)
@@ -70,10 +85,7 @@ func fakeSensor(mode string) {
 	if m, err := ipc.ReadMessage(conn, 0); err != nil || !m.GetHelloResposta().GetAceito() {
 		os.Exit(11)
 	}
-	if mode == "empty" {
-		return
-	}
-	for _, ev := range scanEvents(30) {
+	for _, ev := range events {
 		_ = ipc.WriteMessage(conn, &psychoscopev1.MensagemIPC{Payload: &psychoscopev1.MensagemIPC_Telemetria{Telemetria: &psychoscopev1.EventoTelemetria{
 			IdModulo: id, Dado: &psychoscopev1.EventoTelemetria_Rede{Rede: ev},
 		}}})
@@ -357,12 +369,103 @@ func TestSensorSourceNoEvents(t *testing.T) {
 	}
 }
 
+func TestSensorSourceReconnectKeepsAllEvents(t *testing.T) {
+	isolate(t)
+	for range 5 { // a perda dependia de a 2a sessao ainda estar sendo lida: repete para pegar a corrida
+		var out bytes.Buffer
+		if err := sensorRun(fakeSensorBin(t, "reconnect")).run(context.Background(), []string{writePcap(t)}, &out); err != nil {
+			t.Fatalf("%v\n%s", err, out.String())
+		}
+		if !strings.Contains(out.String(), "eventos analisados: 30 ") {
+			t.Fatalf("os 30 eventos das duas sessoes deviam chegar:\n%s", out.String())
+		}
+	}
+}
+
+func TestSensorSourceFailureDoesNotWaitForGrace(t *testing.T) {
+	isolate(t)
+	r := analyzeRun{source: func(string) (eventSource, error) {
+		return sensorSource{bin: fakeSensorBin(t, "fail"), grace: time.Minute}, nil
+	}}
+	start := time.Now()
+	var out bytes.Buffer
+	if err := r.run(context.Background(), []string{writePcap(t)}, &out); err == nil {
+		t.Fatal("esperava erro do sensor")
+	}
+	if d := time.Since(start); d > 20*time.Second {
+		t.Errorf("sensor que falhou sem conectar esperou o grace (%v)", d)
+	}
+}
+
+func TestSensorSourceRejectsLongSocketPath(t *testing.T) {
+	isolate(t)
+	long := filepath.Join(t.TempDir(), strings.Repeat("d", 90))
+	if err := os.MkdirAll(long, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", long)
+	var out bytes.Buffer
+	err := sensorRun(fakeSensorBin(t, "ok")).run(context.Background(), []string{writePcap(t)}, &out)
+	if err == nil || !strings.Contains(err.Error(), "TMPDIR") {
+		t.Errorf("caminho de socket longo devia dar erro acionavel citando TMPDIR: %v", err)
+	}
+}
+
 func TestFindSensor(t *testing.T) {
-	if p, err := findSensor("/qualquer/caminho"); err != nil || p != "/qualquer/caminho" {
+	exe := func(dir string) string {
+		p := filepath.Join(dir, sensorBinary)
+		if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o700); err != nil { //nolint:gosec // executavel de teste
+			t.Fatal(err)
+		}
+		return p
+	}
+	empty := t.TempDir()
+	t.Setenv("PATH", empty)
+
+	if p, err := findSensor("/qualquer/caminho", empty); err != nil || p != "/qualquer/caminho" {
 		t.Errorf("--sensor explicito deve ser usado como esta: %q %v", p, err)
 	}
-	t.Setenv("PATH", t.TempDir())
-	if _, err := findSensor(""); err == nil && !fileExists(filepath.Join(sensorUserDir, sensorBinary)) {
-		t.Error("sem sensor no PATH, devia falhar com a orientacao de instalar")
+	_, err := findSensor("", empty)
+	if err == nil || !strings.Contains(err.Error(), "--sensor") || !strings.Contains(err.Error(), empty) {
+		t.Errorf("sem sensor, o erro deve orientar (--sensor e onde procurei): %v", err)
+	}
+	fallback := t.TempDir()
+	want := exe(fallback)
+	if p, err := findSensor("", fallback); err != nil || p != want {
+		t.Errorf("devia achar no diretorio de fallback: %q %v", p, err)
+	}
+	onPath := t.TempDir()
+	wantPath := exe(onPath)
+	t.Setenv("PATH", onPath)
+	if p, err := findSensor("", fallback); err != nil || p != wantPath {
+		t.Errorf("o PATH vem antes do fallback: %q %v", p, err)
+	}
+}
+
+func TestWaitDrainedWaitsForEverySession(t *testing.T) {
+	h := newReplayHandler(nil, func() {})
+	h.OnConnect(nil)
+	h.OnDisconnect(nil, nil)
+	h.OnConnect(nil) // o sensor reconectou: a 1a desconexao nao encerra a leitura
+
+	done := make(chan struct{})
+	go func() { h.waitDrained(context.Background(), time.Minute); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("waitDrained voltou com uma sessao ainda aberta")
+	case <-time.After(100 * time.Millisecond):
+	}
+	h.OnDisconnect(nil, nil)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitDrained nao voltou depois da ultima sessao fechar")
+	}
+
+	none := newReplayHandler(nil, func() {})
+	start := time.Now()
+	none.waitDrained(context.Background(), 20*time.Millisecond) // nenhuma conexao: vale so o grace
+	if time.Since(start) > 5*time.Second {
+		t.Error("sem conexao, waitDrained devia voltar logo depois do grace")
 	}
 }

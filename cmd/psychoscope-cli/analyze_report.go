@@ -9,6 +9,7 @@ import (
 	"time"
 
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // analysis e o resultado de uma analise offline, ja sem nenhum I/O: e o que o texto e o JSON
@@ -25,15 +26,11 @@ type analysis struct {
 }
 
 // alertTime e o instante do evento que disparou o alerta (contexto evento_ts), que e
-// reproduzivel; o instante da deteccao (Timestamp) e o relogio de quem rodou a analise.
+// reproduzivel. O Timestamp do alerta e o relogio de quem rodou a analise e nao serve de
+// substituto: sem evento_ts devolve false.
 func alertTime(a *psychoscopev1.Alerta) (time.Time, bool) {
-	if t, err := time.Parse(time.RFC3339Nano, a.Contexto["evento_ts"]); err == nil {
-		return t.UTC(), true
-	}
-	if a.Timestamp != nil {
-		return a.Timestamp.AsTime().UTC(), false
-	}
-	return time.Time{}, false
+	t, err := time.Parse(time.RFC3339Nano, a.Contexto["evento_ts"])
+	return t.UTC(), err == nil
 }
 
 // perRule conta os alertas por regra.
@@ -145,4 +142,19 @@ func (an *analysis) writeJSON(out io.Writer) error {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(j)
+}
+
+// noteEvent conta o evento e guarda o primeiro e o ultimo instante de captura.
+func (an *analysis) noteEvent(ts *timestamppb.Timestamp) {
+	an.Events++
+	if ts == nil {
+		return
+	}
+	t := ts.AsTime()
+	if an.First.IsZero() || t.Before(an.First) {
+		an.First = t
+	}
+	if t.After(an.Last) {
+		an.Last = t
+	}
 }

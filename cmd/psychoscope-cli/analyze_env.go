@@ -36,22 +36,23 @@ type sensorSource struct {
 
 const (
 	defaultSensorGrace = time.Second
+	maxSocketPath      = 100 // sun_path tem 108 bytes; sobra margem
 	sensorUserDir      = "/usr/local/bin"
 )
 
 // findSensor resolve o binario do sensor: o caminho dado, o PATH ou /usr/local/bin. Nunca o
 // diretorio atual.
-func findSensor(explicit string) (string, error) {
+func findSensor(explicit, fallbackDir string) (string, error) {
 	if explicit != "" {
 		return explicit, nil
 	}
 	if p, err := exec.LookPath(sensorBinary); err == nil {
 		return p, nil
 	}
-	if p := filepath.Join(sensorUserDir, sensorBinary); fileExists(p) {
+	if p := filepath.Join(fallbackDir, sensorBinary); fileExists(p) {
 		return p, nil
 	}
-	return "", errors.New("nao encontrei o " + sensorBinary + " no PATH nem em " + sensorUserDir +
+	return "", errors.New("nao encontrei o " + sensorBinary + " no PATH nem em " + fallbackDir +
 		": instale o sensor (docs/INSTALL.md) ou aponte o binario com --sensor caminho")
 }
 
@@ -70,8 +71,11 @@ func (s sensorSource) Stream(ctx context.Context, pcap string, emit func(string,
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	h := &replayHandler{emit: emit, cancel: cancel, connected: make(chan struct{}), disconnected: make(chan struct{})}
+	h := newReplayHandler(emit, cancel)
 	sock := filepath.Join(dir, "core.sock")
+	if len(sock) > maxSocketPath {
+		return fmt.Errorf("o caminho do socket temporario (%d bytes) passa do limite do Linux (~108): use um TMPDIR curto, por exemplo TMPDIR=/tmp", len(sock))
+	}
 	srv, err := ipc.NewServer(ipc.ServerConfig{
 		Path: sock, Mode: 0o600, CoreVersion: version.Version,
 		Auth: ownerOnly{ipc.NewUIDPolicy(uint32(os.Geteuid()), nil)}, Handler: h, //nolint:gosec // Geteuid nunca e negativo
@@ -99,7 +103,11 @@ func (s sensorSource) Stream(ctx context.Context, pcap string, emit func(string,
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
 
-	h.waitDrained(ctx, cmp.Or(s.grace, defaultSensorGrace))
+	grace := cmp.Or(s.grace, defaultSensorGrace)
+	if runErr != nil {
+		grace = 0 // sensor que falhou nao deixa conexao nova a espera; so drena a que existe
+	}
+	h.waitDrained(ctx, grace)
 	switch {
 	case h.err() != nil:
 		return h.err()
@@ -131,27 +139,45 @@ func sensorMessage(s string) string {
 	return truncate(s, 2*maxSensorLine)
 }
 
-// replayHandler entrega ao emit os eventos de rede da unica sessao do sensor. Bloquear aqui e
-// proposital (ao contrario do servico ao vivo): a leitura do socket para e o sensor espera, de
-// modo que nenhum evento do pcap e descartado.
+// replayHandler entrega ao emit os eventos de rede das sessoes do sensor (normalmente uma; mais
+// de uma se ele reconectar). Bloquear aqui e proposital (ao contrario do servico ao vivo): a
+// leitura do socket para e o sensor espera, de modo que nenhum evento do pcap e descartado.
 type replayHandler struct {
 	ipc.NopHandler
 	emit   func(string, *psychoscopev1.EventoFluxoRede) error
 	cancel context.CancelFunc
 
-	connected    chan struct{}
-	disconnected chan struct{}
-	connOnce     sync.Once
-	discOnce     sync.Once
+	wake chan struct{} // sinal (capacidade 1) de que seen ou active mudou
 
-	mu   sync.Mutex
-	rerr error
+	mu     sync.Mutex
+	seen   bool // alguma sessao ja conectou
+	active int  // sessoes abertas agora
+	rerr   error
 }
 
-func (h *replayHandler) OnConnect(*ipc.Session) { h.connOnce.Do(func() { close(h.connected) }) }
+func newReplayHandler(emit func(string, *psychoscopev1.EventoFluxoRede) error, cancel context.CancelFunc) *replayHandler {
+	return &replayHandler{emit: emit, cancel: cancel, wake: make(chan struct{}, 1)}
+}
+
+func (h *replayHandler) notify() {
+	select {
+	case h.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (h *replayHandler) OnConnect(*ipc.Session) {
+	h.mu.Lock()
+	h.seen, h.active = true, h.active+1
+	h.mu.Unlock()
+	h.notify()
+}
 
 func (h *replayHandler) OnDisconnect(*ipc.Session, error) {
-	h.discOnce.Do(func() { close(h.disconnected) })
+	h.mu.Lock()
+	h.active--
+	h.mu.Unlock()
+	h.notify()
 }
 
 func (h *replayHandler) OnTelemetry(s *ipc.Session, ev *psychoscopev1.EventoTelemetria) {
@@ -173,19 +199,30 @@ func (h *replayHandler) err() error {
 	return h.rerr
 }
 
-// waitDrained espera o fim da leitura do fluxo do sensor depois que ele saiu: se a conexao
-// existe (ou aparece dentro de grace), espera a sessao terminar, o que so acontece depois de o
-// servidor ler tudo o que o sensor enviou. Sem conexao, ou com ctx encerrado, volta sem esperar mais.
+// waitDrained espera, depois que o sensor saiu, o fim da leitura de todas as sessoes: uma sessao
+// so termina depois de o servidor ler tudo o que ela enviou. Se nenhuma conexao apareceu, espera
+// ate grace por uma que ainda esteja na fila de aceite (sensor que conectou, enviou e saiu antes
+// de o Core aceitar). Com ctx encerrado, volta sem esperar mais.
 func (h *replayHandler) waitDrained(ctx context.Context, grace time.Duration) {
-	select {
-	case <-h.connected:
-	case <-time.After(grace):
-		return
-	case <-ctx.Done():
-		return
-	}
-	select {
-	case <-h.disconnected:
-	case <-ctx.Done():
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	for {
+		h.mu.Lock()
+		seen, active := h.seen, h.active
+		h.mu.Unlock()
+		if seen && active == 0 {
+			return
+		}
+		var expire <-chan time.Time
+		if !seen {
+			expire = timer.C
+		}
+		select {
+		case <-h.wake:
+		case <-expire:
+			return
+		case <-ctx.Done():
+			return
+		}
 	}
 }
