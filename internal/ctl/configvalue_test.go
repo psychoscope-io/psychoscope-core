@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/settings"
+
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -109,5 +111,16 @@ func TestDisplayValueOriginLabelAndFindField(t *testing.T) {
 	l := &psychoscopev1.ListaConfig{Campos: []*psychoscopev1.CampoConfig{{Caminho: "a.b"}, {Caminho: "c.d"}}}
 	if FindField(l, "c.d") != l.Campos[1] || FindField(l, "x") != nil || FindField(nil, "a.b") != nil {
 		t.Error("FindField")
+	}
+}
+
+func TestSettingFromTextUsesTheCatalogType(t *testing.T) {
+	f := settings.Field{Path: "detection.scan.cooldown", Type: settings.TypeDuration}
+	if got, err := SettingFromText(f, "30s"); err != nil || got != `"30s"` {
+		t.Errorf("duracao: %q %v", got, err)
+	}
+	if _, err := SettingFromText(settings.Field{Path: "detection.scan.vertical_ports", Type: settings.TypeInt}, "x"); err == nil ||
+		!strings.Contains(err.Error(), "detection.scan.vertical_ports") {
+		t.Errorf("inteiro invalido devia citar o campo: %v", err)
 	}
 }

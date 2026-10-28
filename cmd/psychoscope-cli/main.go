@@ -8,6 +8,7 @@
 //	psychoscope-cli [--ctl-socket S] metrics               metricas do Core
 //	psychoscope-cli [--ctl-socket S] config [set|reset ...] configuracao editavel em tempo de execucao
 //	psychoscope-cli [--ctl-socket S] doctor [--sensor] [--json] diagnostico da instalacao (sai com 1 se houver falha)
+//	psychoscope-cli analyze [--set k=v] [--json] arquivo.pcap analise offline de um pcap, sem o servico (nao usa o Core)
 package main
 
 import (
@@ -44,6 +45,9 @@ const usage = `uso: psychoscope-cli [--ctl-socket S] [comando]
   doctor [--sensor] [--json] [--config caminho]
                                       diagnostica a instalacao e diz o que corrigir
                                       (--sensor roda o --check do sensor; --json para scripts)
+  analyze [--set campo=valor]... [--rule R] [--config arq] [--json] [--fail-on-alert] arquivo.pcap
+                                      analisa um pcap sem o servico (precisa do mod-net-sensor; --set testa um ajuste;
+                                      sai com 2 se --fail-on-alert e houver alertas)
   --version                           versao`
 
 var actions = map[string]psychoscopev1.ComandoControle_TipoAcao{
@@ -74,6 +78,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if err := run(ctx, &ctl.Client{Path: sock}, args, os.Stdout); err != nil {
+		if errors.Is(err, errAnalyzeAlerts) { // o analyze ja imprimiu o relatorio
+			os.Exit(2)
+		}
 		if !errors.Is(err, errDoctorFailed) { // o doctor ja imprimiu o relatorio
 			fmt.Fprintln(os.Stderr, "psychoscope-cli:", err)
 		}
@@ -102,6 +109,8 @@ func run(ctx context.Context, cl *ctl.Client, args []string, out io.Writer) erro
 		return cmdConfig(ctx, cl, args[1:], out)
 	case "doctor":
 		return cmdDoctor(ctx, cl, args[1:], out)
+	case "analyze":
+		return cmdAnalyze(ctx, args[1:], out)
 	}
 	return fmt.Errorf("subcomando desconhecido %q\n%s", args[0], usage)
 }

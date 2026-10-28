@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/settings"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -63,6 +64,12 @@ func ValueFromText(f *psychoscopev1.CampoConfig, text string) (string, error) {
 		return string(b), nil
 	}
 	return "", fmt.Errorf("%s: tipo de campo desconhecido", f.Caminho)
+}
+
+// SettingFromText converte o texto digitado para o JSON do campo f do catalogo de
+// configuracoes (o mesmo que ValueFromText, para quem nao tem o contrato em maos).
+func SettingFromText(f settings.Field, text string) (string, error) {
+	return ValueFromText(&psychoscopev1.CampoConfig{Caminho: f.Path, Tipo: fieldType(f.Type)}, text)
 }
 
 // splitList aceita "a, b" ou um array JSON ["a","b"]; itens vazios sao descartados.

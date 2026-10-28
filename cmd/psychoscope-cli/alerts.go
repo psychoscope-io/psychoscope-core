@@ -60,6 +60,11 @@ func formatAlert(a *psychoscopev1.Alerta, verbose bool) string {
 	if a.Timestamp != nil {
 		ts = a.Timestamp.AsTime().Local().Format("2006-01-02 15:04:05")
 	}
+	return formatAlertAt(ts, a, verbose)
+}
+
+// formatAlertAt monta a linha do alerta com o rotulo de tempo ts ja formatado.
+func formatAlertAt(ts string, a *psychoscopev1.Alerta, verbose bool) string {
 	line := fmt.Sprintf("%s [%s] %s: %s", ts, strings.TrimPrefix(a.Severidade.String(), "SEVERIDADE_"), a.Regra, a.Descricao)
 	if !verbose || len(a.Contexto) == 0 {
 		return line
