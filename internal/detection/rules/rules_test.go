@@ -160,15 +160,21 @@ func TestHorizontalScanStillFiresWithoutAnswers(t *testing.T) {
 }
 
 func TestHorizontalScanCountsOnlyUnansweredAndNeedsAFollowUpProbe(t *testing.T) {
-	// 25 hosts sem resposta misturados a 40 que responderam: alerta com os numeros certos
-	evs := browserBurst(40, 0.1, 0.05)
+	// 40 hosts que responderam (0,02 s entre sondas) misturados a 25 que nao (de 0,3 s a 0,54 s)
+	evs := browserBurst(40, 0.02, 0.05)
 	for h := 1; h <= 25; h++ {
-		evs = append(evs, syn(float64(h)*0.1, "192.168.0.8", fmt.Sprintf("198.51.100.%d", h), 443))
+		evs = append(evs, syn(0.29+float64(h)*0.01, "192.168.0.8", fmt.Sprintf("198.51.100.%d", h), 443))
 	}
 	sortByTime(evs)
+	// ate aqui toda sonda tem menos de 1 s: ainda pode estar a caminho da resposta, e nada alerta
+	if as := run(t, Default(), evs...); len(as) != 0 {
+		t.Fatalf("sondas com menos de 1 s nao contam como sem resposta: %v", names(as))
+	}
+	// outra sonda da mesma origem, 2 s depois, avalia a janela: so os 25 sem resposta contam
+	evs = append(evs, syn(2, "192.168.0.8", "203.0.113.250", 443))
 	as := run(t, Default(), evs...)
-	if len(as) != 1 || as[0].Contexto["sem_resposta"] != "20" || as[0].Contexto["hosts_distintos"] == "20" {
-		t.Fatalf("so os sem resposta contam para o limiar: %v", as)
+	if len(as) != 1 || as[0].Contexto["sem_resposta"] != "25" || as[0].Contexto["hosts_distintos"] != "66" {
+		t.Fatalf("40 que responderam nao contam; 25 sem resposta sim (66 sondados): %v", as)
 	}
 	// uma resposta de OUTRO host (ou de outra porta) nao conta como resposta
 	var wrong []*psychoscopev1.EventoFluxoRede
@@ -180,6 +186,24 @@ func TestHorizontalScanCountsOnlyUnansweredAndNeedsAFollowUpProbe(t *testing.T) 
 	sortByTime(wrong)
 	if as := run(t, Default(), wrong...); len(as) != 1 {
 		t.Fatalf("resposta de outro host ou porta nao isenta a sonda: %v", names(as))
+	}
+}
+
+func TestTLSAllowedBasesValidation(t *testing.T) {
+	for _, ok := range [][]string{nil, {"example.com"}, {"blob.core.windows.net", "online-metrix.net."}} {
+		cfg := Default()
+		cfg.TLS.AllowedBases = ok
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("%v devia valer: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "net", "com", ".example.com", "a b.com", "a.com,b.com"} {
+		cfg := Default()
+		cfg.TLS.AllowedBases = []string{bad}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "detection.tls.allowed_bases") {
+			t.Errorf("%q devia ser recusado citando o campo, veio %v", bad, err)
+		}
 	}
 }
 

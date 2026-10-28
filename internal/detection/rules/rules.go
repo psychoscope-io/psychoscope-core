@@ -28,9 +28,9 @@ const (
 
 // ScanConfig parametriza net.scan.syn.
 type ScanConfig struct {
-	Window          time.Duration `json:"window" label:"Janela de observação" doc:"Janela de observação das sondas SYN."`                                                      // janela de observacao
-	VerticalPorts   int           `json:"vertical_ports" label:"Portas distintas (vertical)" doc:"Portas distintas num mesmo destino que caracterizam varredura vertical."`    // portas distintas num mesmo destino => varredura vertical
-	HorizontalHosts int           `json:"horizontal_hosts" label:"Destinos distintos (horiz.)" doc:"Destinos distintos na mesma porta que caracterizam varredura horizontal."` // destinos distintos na mesma porta => varredura horizontal
+	Window          time.Duration `json:"window" label:"Janela de observação" doc:"Janela de observação das sondas SYN."`                                                                                // janela de observacao
+	VerticalPorts   int           `json:"vertical_ports" label:"Portas distintas (vertical)" doc:"Portas distintas num mesmo destino que caracterizam varredura vertical."`                              // portas distintas num mesmo destino => varredura vertical
+	HorizontalHosts int           `json:"horizontal_hosts" label:"Sem resposta (horizontal)" doc:"Destinos distintos, na mesma porta, que não responderam SYN-ACK e caracterizam varredura horizontal."` // destinos distintos na mesma porta => varredura horizontal
 	Cooldown        time.Duration `json:"cooldown" keepstate:"true" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para a mesma origem."`
 	MaxScan         int           `json:"max_scan" keepstate:"true" label:"Máx. de eventos examinados" doc:"Máximo de eventos da origem examinados por avaliação (limita o custo)."` // maximo de eventos da origem examinados por avaliacao
 }
@@ -71,7 +71,7 @@ type TLSConfig struct {
 	MissingSNIWindow time.Duration `json:"missing_sni_window" label:"Janela dos Hellos sem SNI" doc:"Janela de contagem dos ClientHellos sem SNI."`
 	MinLabelLen      int           `json:"min_label_len" label:"Tamanho mínimo do rótulo" doc:"Tamanho mínimo de um rótulo de SNI para ser considerado aleatório (DGA sobre HTTPS)."` // rotulo do SNI longo e de alta entropia (DGA sobre HTTPS)
 	MinEntropy       float64       `json:"min_entropy" label:"Entropia mínima do rótulo" doc:"Entropia de Shannon mínima (bits por caractere) do rótulo do SNI."`
-	AllowedBases     []string      `json:"allowed_bases" keepstate:"true" label:"Domínios base permitidos" doc:"Domínios base isentos da checagem de entropia do SNI."` // dominios base isentos da checagem de entropia
+	AllowedBases     []string      `json:"allowed_bases" keepstate:"true" label:"Sufixos de SNI permitidos" doc:"Domínios isentos da checagem de entropia do SNI: um nome libera ele e seus subdomínios (use ao menos dois rótulos, como blob.core.windows.net)."` // sufixos isentos da checagem de entropia
 }
 
 // BeaconConfig parametriza net.beacon. A regra mantem estado proprio (nao depende da
@@ -169,7 +169,21 @@ func (c Config) Validate() error {
 	if err := c.Beacon.validate(); err != nil {
 		return err
 	}
+	if err := c.TLS.validate(); err != nil {
+		return err
+	}
 	return c.BruteForce.validate()
+}
+
+// validate recusa allowed_bases que isentariam um TLD inteiro (um rotulo so, como "net") ou que
+// nao sao nomes (vazio, ponto inicial, espaco ou virgula).
+func (t TLSConfig) validate() error {
+	for _, s := range t.AllowedBases {
+		if s == "" || strings.HasPrefix(s, ".") || strings.ContainsAny(s, " \t,") || !strings.Contains(strings.TrimSuffix(s, "."), ".") {
+			return fmt.Errorf("detection.tls.allowed_bases: %q invalido (use um nome com pelo menos dois rotulos, sem ponto inicial, por exemplo example.com ou blob.core.windows.net)", s)
+		}
+	}
+	return nil
 }
 
 func (n NXDomainConfig) validate() error {

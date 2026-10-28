@@ -19,8 +19,9 @@ import (
 // Na horizontal, so conta o destino que NAO respondeu SYN-ACK a sonda (um navegador completa os
 // handshakes de dezenas de hosts ao carregar uma pagina, uma varredura mira hosts que nao
 // respondem ou respondem RST). Uma sonda mais nova que answerGrace ainda pode estar a caminho da
-// resposta, entao so entra na conta depois disso. Sem ver o sentido de volta (captura so de um
-// lado) nada responde e a regra se comporta como antes.
+// resposta, entao so entra na conta depois disso (e por isso uma varredura que termina menos de
+// answerGrace depois da ultima sonda so e vista quando a origem mandar outro SYN na janela). Sem
+// ver o sentido de volta (captura so de um lado) nada responde e a regra se comporta como antes.
 type ScanSYN struct{ cfg ScanConfig }
 
 // answerGrace e quanto uma sonda precisa envelhecer, no tempo dos eventos, para ser tida como
@@ -40,11 +41,12 @@ func (r *ScanSYN) Key(ev *detection.Event) (string, bool) {
 }
 
 // probes resume as sondas SYN de uma origem na janela: portas por destino, destinos por porta e,
-// destes, os que nao responderam (unansweredByPort).
+// destes, os candidatos a "sem resposta" (sondas com mais de answerGrace, ainda sem conferir
+// se houve SYN-ACK).
 type probes struct {
-	portsByDst       map[string]map[uint32]struct{}
-	hostsByPort      map[uint32]map[string]struct{}
-	unansweredByPort map[uint32]map[string]struct{}
+	portsByDst  map[string]map[uint32]struct{}
+	hostsByPort map[uint32]map[string]struct{}
+	agedByPort  map[uint32]map[string]struct{}
 }
 
 // endpoint e um destino:porta.
@@ -71,8 +73,7 @@ func (r *ScanSYN) answered(ev *detection.Event, w *detection.Window) map[endpoin
 }
 
 func (r *ScanSYN) collect(ev *detection.Event, w *detection.Window) probes {
-	p := probes{portsByDst: map[string]map[uint32]struct{}{}, hostsByPort: map[uint32]map[string]struct{}{}, unansweredByPort: map[uint32]map[string]struct{}{}}
-	answered := r.answered(ev, w)
+	p := probes{portsByDst: map[string]map[uint32]struct{}{}, hostsByPort: map[uint32]map[string]struct{}{}, agedByPort: map[uint32]map[string]struct{}{}}
 	cutoff := ev.At.Add(-r.cfg.Window)
 	evs := w.FromSrc(ev.Net.IpOrigem)
 	for i, scanned := len(evs)-1, 0; i >= 0 && scanned < r.cfg.MaxScan; i, scanned = i-1, scanned+1 {
@@ -92,11 +93,11 @@ func (r *ScanSYN) collect(ev *detection.Event, w *detection.Window) probes {
 			p.hostsByPort[port] = map[string]struct{}{}
 		}
 		p.hostsByPort[port][dst] = struct{}{}
-		if _, ok := answered[endpoint{dst, port}]; !ok && ev.At.Sub(e.At) >= answerGrace {
-			if p.unansweredByPort[port] == nil {
-				p.unansweredByPort[port] = map[string]struct{}{}
+		if ev.At.Sub(e.At) >= answerGrace {
+			if p.agedByPort[port] == nil {
+				p.agedByPort[port] = map[string]struct{}{}
 			}
-			p.unansweredByPort[port][dst] = struct{}{}
+			p.agedByPort[port][dst] = struct{}{}
 		}
 	}
 	return p
@@ -112,11 +113,27 @@ func (p probes) busiestDst() (dst string, ports int) {
 	return dst, ports
 }
 
-// busiestPort devolve a porta com mais destinos distintos sem resposta (empate: menor porta).
-func (p probes) busiestPort() (port uint32, hosts int) {
-	for pt, hs := range p.unansweredByPort {
-		if len(hs) > hosts || (len(hs) == hosts && pt < port) {
-			port, hosts = pt, len(hs)
+// busiestUnanswered devolve a porta com mais destinos sem resposta entre as que tem candidatos
+// suficientes (empate: menor porta). So consulta as respostas (uma varredura da janela) se alguma
+// porta tem pelo menos min candidatos: o caso comum, de uma maquina que faz poucas conexoes, sai
+// antes.
+func (r *ScanSYN) busiestUnanswered(ev *detection.Event, w *detection.Window, p probes, min int) (port uint32, hosts int) {
+	var answered map[endpoint]struct{}
+	for pt, aged := range p.agedByPort {
+		if len(aged) < min {
+			continue
+		}
+		if answered == nil {
+			answered = r.answered(ev, w)
+		}
+		n := 0
+		for dst := range aged {
+			if _, ok := answered[endpoint{dst, pt}]; !ok {
+				n++
+			}
+		}
+		if n > hosts || (n == hosts && pt < port) {
+			port, hosts = pt, n
 		}
 	}
 	return port, hosts
@@ -127,7 +144,7 @@ func (r *ScanSYN) Eval(ev *detection.Event, w *detection.Window) *psychoscopev1.
 	if dst, n := p.busiestDst(); n >= r.cfg.VerticalPorts {
 		return r.verticalAlert(ev, dst, p.portsByDst[dst])
 	}
-	if port, n := p.busiestPort(); n >= r.cfg.HorizontalHosts {
+	if port, n := r.busiestUnanswered(ev, w, p, r.cfg.HorizontalHosts); n >= r.cfg.HorizontalHosts {
 		return r.horizontalAlert(ev, port, len(p.hostsByPort[port]), n)
 	}
 	return nil
