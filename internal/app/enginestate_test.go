@@ -115,3 +115,30 @@ func TestEngineStateIsSavedPeriodically(t *testing.T) {
 		t.Fatalf("erros de gravacao: %v", got)
 	}
 }
+
+// Um limiar editado no arquivo de configuracao entre duas partidas faz a regra recomecar vazia
+// (como em Reconfigure): o cooldown antigo nao pode esconder o efeito do ajuste. Uma regra
+// inalterada, ou so com cooldown/excecoes diferentes, mantem o estado.
+func TestEngineStateIsDroppedForRulesWithAChangedThreshold(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state", "engine-state.json")
+	cl := &ctl.Client{Path: filepath.Join(dir, "ctl.sock")}
+
+	stop := startDaemon(t, stateCfg(dir, statePath))
+	waitAlerts(t, cl, 1)
+	stop()
+
+	same := stateCfg(dir, statePath)
+	same.Detection.Rules.Scan.Cooldown = 2 * time.Minute // cooldown nao invalida o estado
+	stop = startDaemon(t, same)
+	waitMetricAtLeast(t, cl, "psychoscope_engine_events_processed_total", 30)
+	if n := len(waitAlerts(t, cl, 1)); n != 1 {
+		t.Fatalf("so o cooldown mudou, o estado vale: %d alertas", n)
+	}
+	stop()
+
+	tuned := stateCfg(dir, statePath)
+	tuned.Detection.Rules.Scan.VerticalPorts = 14 // limiar ajustado: a varredura recomeca sem cooldown
+	startDaemon(t, tuned)
+	waitAlerts(t, cl, 2)
+}

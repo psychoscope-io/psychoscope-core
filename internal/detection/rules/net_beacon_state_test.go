@@ -3,6 +3,7 @@ package rules
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -183,24 +184,65 @@ func TestBeaconImportRejectsHostileState(t *testing.T) {
 	}
 }
 
-func TestChangedRules(t *testing.T) {
-	base := Default()
-	edit := func(f func(*Config)) Config { c := Default(); f(&c); return c }
+func stateKeys(t *testing.T, c Config) map[string]string {
+	t.Helper()
+	rs, err := Build(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, r := range rs {
+		k, ok := r.(detection.StateKeyed)
+		if !ok {
+			t.Fatalf("a regra %s deve implementar detection.StateKeyed", r.Name())
+		}
+		out[r.Name()] = k.StateKey()
+	}
+	return out
+}
+
+func TestStateKeyChangesOnlyWithStateAffectingFields(t *testing.T) {
+	base := stateKeys(t, Default())
+	if len(base) != len(AllNames()) {
+		t.Fatalf("toda regra tem chave de estado: %d de %d", len(base), len(AllNames()))
+	}
+	edit := func(f func(*Config)) map[string]string { c := Default(); f(&c); return stateKeys(t, c) }
+	changed := func(next map[string]string) []string {
+		var out []string
+		for _, n := range AllNames() {
+			if k, built := next[n]; built && k != base[n] { // regra desligada nao e "mudada"
+				out = append(out, n)
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
 	cases := []struct {
 		name string
-		next Config
+		next map[string]string
 		want []string
 	}{
-		{"igual", Default(), nil},
+		{"igual", edit(func(*Config) {}), nil},
 		{"um limiar", edit(func(c *Config) { c.Beacon.MaxCV = 0.1 }), []string{NameBeacon}},
-		{"uma lista", edit(func(c *Config) { c.Tunnel.AllowedBases = []string{"cdn.example"} }), []string{NameDNSTunnel}},
-		{"duas regras", edit(func(c *Config) { c.Scan.Cooldown = time.Hour; c.ICMPSweep.MinHosts = 5 }), []string{NameICMPSweep, NameScanSYN}},
+		{"min_interval", edit(func(c *Config) { c.Beacon.MinInterval = 10 * time.Second }), []string{NameBeacon}},
+		{"duas regras", edit(func(c *Config) { c.Scan.VerticalPorts = 5; c.ICMPSweep.MinHosts = 5 }), []string{NameICMPSweep, NameScanSYN}},
+		{"cooldown nao muda a chave", edit(func(c *Config) { c.Beacon.Cooldown = time.Minute; c.Scan.Cooldown = time.Hour }), nil},
+		{"lista de excecao nao muda a chave", edit(func(c *Config) {
+			c.Beacon.IgnoreDestinations = []string{"203.0.113.0/24"}
+			c.Beacon.IgnoreDomains = []string{"example.com"}
+			c.Tunnel.AllowedBases = []string{"cdn.example"}
+			c.BruteForce.IgnoreSources = []string{"10.9.0.0/16"}
+			c.TLS.AllowedBases = []string{"cdn.example"}
+			c.NXDomain.IgnoreSuffixes = []string{"corp.example"}
+		}), nil},
+		{"tetos nao mudam a chave", edit(func(c *Config) { c.Beacon.MaxKeys = 100; c.Scan.MaxScan = 10 }), nil},
 		{"so a lista de desligadas", edit(func(c *Config) { c.Disabled = []string{NameDNSRate} }), nil},
+		{"lista nula e vazia sao iguais", edit(func(c *Config) { c.Beacon.IgnorePorts = []int{}; c.Tunnel.AllowedBases = []string{} }), nil},
 	}
 	for _, c := range cases {
-		got := ChangedRules(base, c.next)
-		if fmt.Sprint(got) != fmt.Sprint(c.want) {
-			t.Errorf("%s: %v, esperado %v", c.name, got, c.want)
+		sort.Strings(c.want)
+		if got := changed(c.next); fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("%s: mudaram %v, esperado %v", c.name, got, c.want)
 		}
 	}
 }

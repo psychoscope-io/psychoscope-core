@@ -14,6 +14,7 @@ import (
 type memRule struct {
 	gatedRule
 	hits int
+	key  string // chave de estado (StateKeyed)
 }
 
 type memState struct {
@@ -21,13 +22,19 @@ type memState struct {
 }
 
 func newMemRule(name string, cooldown time.Duration) *memRule {
-	r := &memRule{}
+	return newKeyedMemRule(name, cooldown, "k")
+}
+
+func newKeyedMemRule(name string, cooldown time.Duration, key string) *memRule {
+	r := &memRule{key: key}
 	r.gatedRule = gatedRule{fnRule{name, func(ev *Event, _ *Window) *psychoscopev1.Alerta {
 		r.hits++
 		return NewAlert(name, psychoscopev1.Severidade_SEVERIDADE_ALTA, "x", ev, nil)
 	}}, cooldown}
 	return r
 }
+
+func (r *memRule) StateKey() string { return r.key }
 
 func (r *memRule) ExportState(time.Time) any { return memState{Hits: r.hits} }
 
@@ -40,17 +47,27 @@ func (r *memRule) ImportState(raw []byte) (int, error) {
 	return 1, nil
 }
 
+// keyedRule acrescenta uma chave de estado a uma regra Gated.
+type keyedRule struct {
+	gatedRule
+	key string
+}
+
+func (k keyedRule) StateKey() string { return k.key }
+
+func countRuleKeyed(name, key string) Rule { return keyedRule{countRule(name).(gatedRule), key} }
+
 func alertsAfter(t *testing.T, pub *recPub, want int) {
 	t.Helper()
 	eventually(t, "alertas publicados", func() bool { return len(pub.list()) == want })
 }
 
 func TestReconfigureKeepsCooldownOfUnchangedRules(t *testing.T) {
-	e, pub, stop := startEngine(t, []Rule{countRule("r")})
+	e, pub, stop := startEngine(t, []Rule{countRuleKeyed("r", "k")})
 	defer stop()
 	submit(e, 0, "a")
 	alertsAfter(t, pub, 1)
-	reconf(t, e, []Rule{countRule("r")}, time.Minute) // configuracao da regra inalterada
+	reconf(t, e, []Rule{countRuleKeyed("r", "k")}, time.Minute) // mesma chave de estado
 	submit(e, 2, "a")
 	eventually(t, "evento processado", func() bool { return e.Stats().Processed == 2 })
 	if n := len(pub.list()); n != 1 {
@@ -66,7 +83,7 @@ func TestReconfigureNewCooldownAppliesToKeptState(t *testing.T) {
 	defer stop()
 	submit(e, 0, "a")
 	alertsAfter(t, pub, 1)
-	reconf(t, e, []Rule{newMemRule("r", 5*time.Second)}, time.Minute) // so o cooldown mudou, mas r nao esta em fresh
+	reconf(t, e, []Rule{newMemRule("r", 5*time.Second)}, time.Minute) // so o cooldown mudou: a chave de estado e a mesma
 	submit(e, 10, "a")                                                // 10 s depois do alerta: o cooldown novo (5 s) ja venceu
 	alertsAfter(t, pub, 2)
 }
@@ -94,10 +111,10 @@ func TestReconfigureCarriesStatefulRuleState(t *testing.T) {
 	if kept.hits != 1 {
 		t.Fatalf("o estado da regra inalterada passa para a nova instancia: hits=%d", kept.hits)
 	}
-	fresh := newMemRule("m", time.Hour)
-	reconf(t, e, []Rule{fresh}, time.Minute, "m")
-	if fresh.hits != 0 {
-		t.Fatalf("regra em fresh comeca vazia: hits=%d", fresh.hits)
+	changed := newKeyedMemRule("m", time.Hour, "limiar-novo")
+	reconf(t, e, []Rule{changed}, time.Minute)
+	if changed.hits != 0 {
+		t.Fatalf("regra com outra chave de estado comeca vazia: hits=%d", changed.hits)
 	}
 }
 
@@ -161,13 +178,13 @@ func TestSnapshotKeepsOnlyActiveCooldowns(t *testing.T) {
 func TestRestoreIgnoresUnknownRulesBadVersionAndHugeKeys(t *testing.T) {
 	rule := newMemRule("m", time.Hour)
 	e := NewEngine(EngineConfig{Window: time.Minute}, []Rule{rule}, &recPub{})
-	if res := e.Restore(&Snapshot{Versao: SnapshotVersion + 1, Cooldowns: []CooldownEntry{{Regra: "m", Chave: "a", EmitidoEm: t0}}}); res.Cooldowns != 0 {
+	if res := e.Restore(&Snapshot{Versao: SnapshotVersion + 1, Chaves: map[string]string{"m": "k"}, Cooldowns: []CooldownEntry{{Regra: "m", Chave: "a", EmitidoEm: t0}}}); res.Cooldowns != 0 {
 		t.Fatalf("versao desconhecida deve ser descartada: %+v", res)
 	}
 	if res := e.Restore(nil); res.Cooldowns != 0 {
 		t.Fatalf("nil: %+v", res)
 	}
-	res := e.Restore(&Snapshot{Versao: SnapshotVersion, Cooldowns: []CooldownEntry{
+	res := e.Restore(&Snapshot{Versao: SnapshotVersion, Chaves: map[string]string{"m": "k"}, Cooldowns: []CooldownEntry{
 		{Regra: "outra", Chave: "a", EmitidoEm: t0},                   // regra que nao existe
 		{Regra: "m", Chave: "", EmitidoEm: t0},                        // chave vazia
 		{Regra: "m", Chave: strings.Repeat("k", 5000), EmitidoEm: t0}, // chave gigante
@@ -210,4 +227,35 @@ func TestSnapshotUnderLoadIsRaceFree(t *testing.T) {
 	}
 	<-done
 	stop()
+}
+
+// Estado salvo com outra chave de estado (limiar ajustado no arquivo de configuracao entre duas
+// partidas), ou de um snapshot sem chaves, nao vale: a regra comeca vazia.
+func TestRestoreDropsStateOfRuleWithAnotherStateKey(t *testing.T) {
+	saved := &Snapshot{Versao: SnapshotVersion, Chaves: map[string]string{"m": "limiar-antigo"},
+		Cooldowns: []CooldownEntry{{Regra: "m", Chave: "a", EmitidoEm: t0}},
+		Regras:    map[string]any{"m": json.RawMessage(`{"hits":7}`)}}
+	for name, snap := range map[string]*Snapshot{
+		"chave diferente": saved,
+		"sem chaves":      {Versao: SnapshotVersion, Cooldowns: saved.Cooldowns, Regras: saved.Regras},
+	} {
+		rule := newKeyedMemRule("m", time.Hour, "limiar-novo")
+		e := NewEngine(EngineConfig{Window: time.Minute}, []Rule{rule}, &recPub{})
+		if res := e.Restore(snap); res.Cooldowns != 0 || len(res.Rules) != 0 || rule.hits != 0 {
+			t.Errorf("%s: o estado nao deve ser restaurado: %+v hits=%d", name, res, rule.hits)
+		}
+	}
+	rule := newKeyedMemRule("m", time.Hour, "limiar-antigo")
+	e := NewEngine(EngineConfig{Window: time.Minute}, []Rule{rule}, &recPub{})
+	if res := e.Restore(saved); res.Cooldowns != 1 || rule.hits != 7 {
+		t.Errorf("controle: com a mesma chave o estado volta: %+v hits=%d", res, rule.hits)
+	}
+}
+
+func TestSnapshotRecordsTheStateKeys(t *testing.T) {
+	e := NewEngine(EngineConfig{Window: time.Minute}, []Rule{newKeyedMemRule("m", time.Hour, "abc"), countRule("sem-chave")}, &recPub{})
+	snap := e.State()
+	if snap.Chaves["m"] != "abc" || len(snap.Chaves) != 1 {
+		t.Fatalf("so as regras StateKeyed entram em Chaves: %v", snap.Chaves)
+	}
 }

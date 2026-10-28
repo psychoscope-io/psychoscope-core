@@ -33,7 +33,7 @@ func (d *daemon) overrideCount() int {
 }
 
 // liveSettings aplica uma configuracao efetiva nova nos componentes em execucao: troca as
-// regras e a janela do motor (preservando o estado das regras que nao mudaram) e os limites
+// regras e a janela do motor (preservando o estado das regras cuja chave de estado nao mudou) e os limites
 // de retencao do gravador de alertas.
 type liveSettings struct{ d *daemon }
 
@@ -42,12 +42,9 @@ func (l liveSettings) Apply(ctx context.Context, c *config.Config) error {
 	if err != nil {
 		return err
 	}
-	// Apply roda um de cada vez (Manager.applyMu), entao appliedRules nao precisa de trava.
-	fresh := rules.ChangedRules(l.d.appliedRules, c.Detection.Rules)
-	if err := l.d.engine.Reconfigure(ctx, ruleSet, c.Detection.Window, fresh); err != nil {
+	if err := l.d.engine.Reconfigure(ctx, ruleSet, c.Detection.Window); err != nil {
 		return fmt.Errorf("motor de deteccao: %w", err)
 	}
-	l.d.appliedRules = c.Detection.Rules
 	if l.d.persister != nil {
 		l.d.persister.SetLimits(c.Storage.Retention(), c.Storage.MaxAlerts)
 	}

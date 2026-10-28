@@ -79,21 +79,21 @@ func NewEngine(cfg EngineConfig, rules []Rule, pub Publisher) *Engine {
 type reconfig struct {
 	rules []Rule
 	span  time.Duration
-	fresh []string // regras que comecam sem estado (configuracao alterada)
 	done  chan struct{}
 }
 
 // Reconfigure troca as regras e a duracao da janela com o motor rodando. A janela mantem os
 // eventos retidos (so descarta o que sai da nova duracao). O estado das regras que continuam
 // (cooldowns do motor e estado interno, como as series do beacon) passa para as instancias
-// novas, exceto o das regras de fresh, cuja configuracao mudou e que recomecam: assim ajustar
-// um limiar faz o alerta voltar na hora, e mexer em outra regra nao o repete. Os eventos que
+// novas, exceto o das regras StateKeyed cuja chave de estado mudou (limiar ajustado): elas
+// recomecam, e assim ajustar um limiar faz o alerta voltar na hora, enquanto mexer em outra
+// regra, ou so em cooldown e listas de excecao, nao repete os alertas. Os eventos que
 // ja estavam na fila sao avaliados antes, com as regras antigas. ctx limita so a entrega do
 // pedido (motor parado ou travado): depois que o motor o aceita, a troca sempre termina
 // (esvaziar a fila e limitado), entao esperamos por ela. Devolver um erro de contexto nesse
 // ponto diria "nao aplicado" a quem ja teve o pedido aplicado.
-func (e *Engine) Reconfigure(ctx context.Context, rules []Rule, span time.Duration, fresh []string) error {
-	rc := reconfig{rules: rules, span: span, fresh: fresh, done: make(chan struct{})}
+func (e *Engine) Reconfigure(ctx context.Context, rules []Rule, span time.Duration) error {
+	rc := reconfig{rules: rules, span: span, done: make(chan struct{})}
 	select {
 	case e.reconf <- rc:
 	case <-ctx.Done():
@@ -108,7 +108,7 @@ func (e *Engine) reconfigure(rc reconfig) {
 	for n := len(e.in); n > 0; n-- { // so esta goroutine le da fila: os n eventos estao la
 		e.process(<-e.in)
 	}
-	e.carryState(rc.rules, rc.fresh)
+	e.carryState(rc.rules)
 	e.rules = rc.rules
 	e.window.SetSpan(rc.span)
 	e.windowLen.Store(int64(e.window.Len()))

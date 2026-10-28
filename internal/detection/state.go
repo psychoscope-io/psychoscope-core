@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -26,6 +25,13 @@ type Stateful interface {
 	ImportState(raw []byte) (kept int, err error)
 }
 
+// StateKeyed e implementada por regras que dizem com que configuracao o estado delas foi
+// acumulado: o estado so passa para outra instancia (Reconfigure) ou para outra partida (Restore)
+// quando a chave e a mesma; do contrario a regra recomeca vazia. Regra sem chave leva sempre o estado.
+type StateKeyed interface {
+	StateKey() string
+}
+
 // CooldownEntry e um cooldown do motor: o instante (tempo dos eventos) do ultimo alerta da
 // chave. O prazo vem do cooldown atual da regra, entao mudar o cooldown vale sobre o estado salvo.
 type CooldownEntry struct {
@@ -40,6 +46,8 @@ type Snapshot struct {
 	Versao    int             `json:"versao"`
 	SalvoEm   time.Time       `json:"salvo_em"`
 	Cooldowns []CooldownEntry `json:"cooldowns,omitempty"`
+	// Chaves guarda o StateKey de cada regra StateKeyed no momento da copia.
+	Chaves map[string]string `json:"chaves,omitempty"`
 	// Regras guarda o estado de cada regra Stateful por nome. Ao exportar, os valores sao as
 	// copias de ExportState; ao ler de um arquivo, json.RawMessage.
 	Regras map[string]any `json:"regras,omitempty"`
@@ -52,6 +60,7 @@ func (s *Snapshot) UnmarshalJSON(b []byte) error {
 		Versao    int                        `json:"versao"`
 		SalvoEm   time.Time                  `json:"salvo_em"`
 		Cooldowns []CooldownEntry            `json:"cooldowns"`
+		Chaves    map[string]string          `json:"chaves"`
 		Regras    map[string]json.RawMessage `json:"regras"`
 	}
 	dec := json.NewDecoder(bytes.NewReader(b))
@@ -59,7 +68,7 @@ func (s *Snapshot) UnmarshalJSON(b []byte) error {
 	if err := dec.Decode(&aux); err != nil {
 		return err
 	}
-	*s = Snapshot{Versao: aux.Versao, SalvoEm: aux.SalvoEm, Cooldowns: aux.Cooldowns}
+	*s = Snapshot{Versao: aux.Versao, SalvoEm: aux.SalvoEm, Cooldowns: aux.Cooldowns, Chaves: aux.Chaves}
 	if len(aux.Regras) > 0 {
 		s.Regras = make(map[string]any, len(aux.Regras))
 		for name, raw := range aux.Regras {
@@ -99,10 +108,13 @@ func (e *Engine) snapshot() *Snapshot {
 			s.Cooldowns = append(s.Cooldowns, CooldownEntry{Regra: k.rule, Chave: k.key, EmitidoEm: last.UTC()})
 		}
 	}
-	slices.SortFunc(s.Cooldowns, func(a, b CooldownEntry) int {
-		return compareStrings(a.Regra+"\x00"+a.Chave, b.Regra+"\x00"+b.Chave)
-	})
 	for _, r := range e.rules {
+		if k, ok := r.(StateKeyed); ok {
+			if s.Chaves == nil {
+				s.Chaves = map[string]string{}
+			}
+			s.Chaves[r.Name()] = k.StateKey()
+		}
 		if st, ok := r.(Stateful); ok {
 			if s.Regras == nil {
 				s.Regras = map[string]any{}
@@ -111,16 +123,6 @@ func (e *Engine) snapshot() *Snapshot {
 		}
 	}
 	return s
-}
-
-func compareStrings(a, b string) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
 }
 
 // gatedCooldowns devolve o cooldown atual de cada regra Gated, por nome.
@@ -144,22 +146,31 @@ type RestoreResult struct {
 const maxCooldownKeyLen = 512
 
 // Restore carrega o estado salvo. So pode ser chamado antes de Run. Regras desconhecidas,
-// desligadas ou sem estado sao ignoradas, e uma regra cujo estado nao pode ser lido comeca vazia.
+// desligadas ou sem estado sao ignoradas; uma regra StateKeyed cuja chave mudou desde que o
+// estado foi salvo (limiar ajustado no arquivo de configuracao) recomeca vazia, como em Reconfigure;
+// e uma regra cujo estado nao pode ser lido tambem comeca vazia.
 func (e *Engine) Restore(s *Snapshot) RestoreResult {
 	res := RestoreResult{Rules: map[string]int{}}
 	if s == nil || s.Versao != SnapshotVersion {
 		return res
 	}
+	valid := map[string]bool{} // regras cujo estado salvo vale para a configuracao atual
+	for _, r := range e.rules {
+		valid[r.Name()] = true
+		if k, ok := r.(StateKeyed); ok {
+			valid[r.Name()] = s.Chaves[r.Name()] == k.StateKey()
+		}
+	}
 	cooldowns := e.gatedCooldowns()
 	for _, c := range s.Cooldowns {
-		if _, ok := cooldowns[c.Regra]; ok && c.Chave != "" && len(c.Chave) <= maxCooldownKeyLen {
+		if _, ok := cooldowns[c.Regra]; ok && valid[c.Regra] && c.Chave != "" && len(c.Chave) <= maxCooldownKeyLen {
 			e.cooldown[cooldownKey{c.Regra, c.Chave}] = c.EmitidoEm
 			res.Cooldowns++
 		}
 	}
 	for _, r := range e.rules {
 		st, ok := r.(Stateful)
-		if !ok || s.Regras[r.Name()] == nil {
+		if !ok || !valid[r.Name()] || s.Regras[r.Name()] == nil {
 			continue
 		}
 		if n, err := importRuleState(st, s.Regras[r.Name()]); err != nil {
@@ -183,13 +194,32 @@ func importRuleState(st Stateful, v any) (int, error) {
 	return st.ImportState(raw)
 }
 
-// carryState leva ao conjunto novo o estado das regras que continuam com a mesma configuracao
-// (as de fresh, e as que saem, comecam vazias): cooldowns do motor e estado das Stateful.
+// carryState leva ao conjunto novo o estado das regras cuja chave de estado nao mudou (as de
+// chave diferente, e as que saem, comecam vazias): cooldowns do motor e estado das Stateful.
 // Roda dentro de Run, antes de e.rules ser trocada.
-func (e *Engine) carryState(next []Rule, fresh []string) {
+func (e *Engine) carryState(next []Rule) {
+	oldKeys := map[string]string{}
+	old := map[string]Stateful{}
+	for _, r := range e.rules {
+		if k, ok := r.(StateKeyed); ok {
+			oldKeys[r.Name()] = k.StateKey()
+		}
+		if st, ok := r.(Stateful); ok {
+			old[r.Name()] = st
+		}
+	}
+	// same: a regra nova pode herdar o estado da antiga de mesmo nome
+	same := func(r Rule) bool {
+		k, ok := r.(StateKeyed)
+		if !ok {
+			return true
+		}
+		prev, had := oldKeys[r.Name()]
+		return had && prev == k.StateKey()
+	}
 	keep := map[string]bool{}
 	for _, r := range next {
-		if _, ok := r.(Gated); ok && !slices.Contains(fresh, r.Name()) {
+		if _, ok := r.(Gated); ok && same(r) {
 			keep[r.Name()] = true
 		}
 	}
@@ -198,17 +228,11 @@ func (e *Engine) carryState(next []Rule, fresh []string) {
 			delete(e.cooldown, k)
 		}
 	}
-	old := map[string]Stateful{}
-	for _, r := range e.rules {
-		if st, ok := r.(Stateful); ok {
-			old[r.Name()] = st
-		}
-	}
 	now := e.window.Now()
 	for _, r := range next {
 		st, ok := r.(Stateful)
 		prev := old[r.Name()]
-		if !ok || prev == nil || slices.Contains(fresh, r.Name()) {
+		if !ok || prev == nil || !same(r) {
 			continue
 		}
 		if _, err := importRuleState(st, prev.ExportState(now)); err != nil {
