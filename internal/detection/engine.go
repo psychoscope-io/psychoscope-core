@@ -46,7 +46,7 @@ type Engine struct {
 	log    *slog.Logger
 	in     chan *Event
 
-	cooldown map[cooldownKey]time.Time // fim da supressao, no tempo dos eventos
+	cooldown map[cooldownKey]time.Time // instante do ultimo alerta, no tempo dos eventos
 	reconf   chan reconfig             // pedidos de Reconfigure, tratados dentro de Run
 
 	received, dropped, processed, alerts, suppressed, ruleErrors atomic.Uint64
@@ -183,7 +183,7 @@ func (e *Engine) evalRule(r Rule, ev *Event) {
 			return
 		}
 		ck = cooldownKey{r.Name(), key}
-		if until, active := e.cooldown[ck]; active && e.window.Now().Before(until) {
+		if last, active := e.cooldown[ck]; active && e.window.Now().Before(last.Add(g.Cooldown())) {
 			e.suppressed.Add(1)
 			return
 		}
@@ -194,7 +194,7 @@ func (e *Engine) evalRule(r Rule, ev *Event) {
 		return
 	}
 	if gated {
-		e.cooldown[ck] = e.window.Now().Add(g.Cooldown())
+		e.cooldown[ck] = e.window.Now()
 		if a.Contexto == nil {
 			a.Contexto = map[string]string{}
 		}
@@ -213,10 +213,19 @@ func (e *Engine) evalRule(r Rule, ev *Event) {
 	e.pub.Publish(a)
 }
 
+// purgeCooldowns descarta as supressoes vencidas e as de regras que nao existem mais; o prazo
+// vem do cooldown atual da regra, ja que o mapa guarda so o instante do alerta.
 func (e *Engine) purgeCooldowns() {
+	cooldowns := map[string]time.Duration{}
+	for _, r := range e.rules {
+		if g, ok := r.(Gated); ok {
+			cooldowns[r.Name()] = g.Cooldown()
+		}
+	}
 	now := e.window.Now()
-	for k, until := range e.cooldown {
-		if !now.Before(until) {
+	for k, last := range e.cooldown {
+		d, known := cooldowns[k.rule]
+		if !known || !now.Before(last.Add(d)) {
 			delete(e.cooldown, k)
 		}
 	}

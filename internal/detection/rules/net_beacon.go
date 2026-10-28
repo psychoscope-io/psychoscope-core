@@ -36,7 +36,7 @@ type series struct {
 type Beacon struct {
 	cfg        BeaconConfig
 	series     map[string]*series
-	cooldown   map[string]time.Time // chave -> fim da supressao (tempo dos eventos)
+	cooldown   map[string]time.Time // chave -> instante do ultimo alerta (tempo dos eventos)
 	ignoreDom  []string
 	ignorePort map[uint32]bool
 	ignoreDst  []*net.IPNet
@@ -147,17 +147,17 @@ func (s *series) add(at time.Time, maxInterval time.Duration) {
 
 // armCooldown devolve false se a chave ainda esta suprimida; senao arma o cooldown.
 func (r *Beacon) armCooldown(key string, at time.Time) bool {
-	if until, ok := r.cooldown[key]; ok && at.Before(until) {
+	if last, ok := r.cooldown[key]; ok && at.Before(last.Add(r.cfg.Cooldown)) {
 		return false
 	}
 	if len(r.cooldown) >= r.cfg.MaxKeys {
-		for k, until := range r.cooldown {
-			if !at.Before(until) {
+		for k, last := range r.cooldown {
+			if !at.Before(last.Add(r.cfg.Cooldown)) {
 				delete(r.cooldown, k)
 			}
 		}
 	}
-	r.cooldown[key] = at.Add(r.cfg.Cooldown)
+	r.cooldown[key] = at
 	return true
 }
 
