@@ -138,9 +138,9 @@ e ao lado do título da seção. Sob a lista aparecem a descrição e o formato 
 `Tab` completa o caminho). As alterações ficam num **rascunho** (marcado com `*` e contado no título) e só `:w` as envia, de uma vez.
 `Esc` volta para a tela principal (como `:q`, recusa se houver alterações pendentes; durante a edição de um campo, cancela só a edição), `:q!` descarta as alterações e `:wq` grava e fecha. Sem permissão de escrita, a tela é somente leitura.
 
-**Ações `i` e `u` no detalhe do alerta.** Para os alertas de `net.beacon` (o IP de destino ou o domínio), `net.bruteforce.auth` (a origem) e
-`net.dns.tunnel` (o domínio base), `i` acrescenta o valor à lista de exceções da regra (`beacon.ignore_destinations`, `beacon.ignore_domains`,
-`bruteforce.ignore_sources`, `tunnel.allowed_bases`), sem duplicar e sem perder o que já estava na lista, e `u` o remove da lista (a regra
+**Ações `i` e `u` no detalhe do alerta.** Para os alertas de `net.beacon` (o IP de destino ou o domínio), `net.bruteforce.auth` (a origem),
+`net.dns.tunnel` (o domínio base) e `net.tls.suspicious` por entropia do SNI (o SNI sem o primeiro rótulo; vale para ele e seus subdomínios), `i` acrescenta o valor
+à lista de exceções da regra (`beacon.ignore_destinations`, `beacon.ignore_domains`, `bruteforce.ignore_sources`, `tunnel.allowed_bases`, `tls.allowed_bases`), sem duplicar e sem perder o que já estava na lista, e `u` o remove da lista (a regra
 volta a monitorá-lo). O detalhe lê a lista atual e mostra, na seção "Ação", o estado e o que cada tecla fará: oferece `i` se o valor ainda não
 está ignorado, `u` se está, e, se um item da lista já o abrange (uma rede CIDR que contém o IP, um domínio pai), diz qual e manda editar a
 lista em `:config`, porque nem `i` nem `u` mudariam nada. Só o root grava. Outras regras (como a varredura) não têm exceção sugerida.
@@ -232,7 +232,7 @@ mesma ideia: `/var/lib/psychoscope` (ex.: `StateDirectory=`), senão `$XDG_STATE
 
 ## Notas de desenvolvimento
 
-- Depende de `github.com/psychoscope-io/psychoscope-proto@v0.2.0`. Antes da publicação (ou offline): `source ../psychoscope-proto/scripts/local-deps.sh` resolve a dependência a partir do checkout local; para iterar no contrato sem criar tags, use um `go.work` (já ignorado pelo git).
+- Depende de `github.com/psychoscope-io/psychoscope-proto@v0.5.0`. Antes da publicação (ou offline): `source ../psychoscope-proto/scripts/local-deps.sh` resolve a dependência a partir do checkout local; para iterar no contrato sem criar tags, use um `go.work` (já ignorado pelo git).
 - `testdata/framing_vectors.json` é cópia de `psychoscope-proto/testdata/`.
 - `internal/testmod` é um módulo falso para testes (o binário de teste se re-executa como filho).
 - Testes do `install.sh` e do `get.sh` (instala, atualiza e desinstala; sem rede nem root): `./deploy/test_install.sh` e `./deploy/test_get.sh`. Testes entre repositórios (daemon + sensor reais, persistência, TUI em pty):
