@@ -34,18 +34,18 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Por que importa.** Varredura é o reconhecimento que antecede quase todo ataque: o atacante descobre quais serviços existem antes de escolher o alvo. A horizontal, que procura uma porta específica pela rede, costuma indicar worm ou busca por um serviço vulnerável, por isso a severidade maior.
 
-**Padrões.** Janela 10 s; ≥15 portas distintas num destino (vertical); ≥20 destinos distintos na mesma porta (horizontal); cooldown 1 min; examina até 5000 eventos da origem por avaliação.
+**Padrões.** Janela 10 s; ≥15 portas distintas num destino (vertical); ≥20 destinos distintos **sem resposta** na mesma porta (horizontal); cooldown 1 min; examina até 5000 eventos da origem por avaliação. Na horizontal, um destino que respondeu SYN-ACK à sonda não conta (um navegador completa o handshake de dezenas de hosts ao carregar uma página; uma varredura mira hosts que não respondem ou respondem RST), e uma sonda só vale depois de 1 s, tempo de a resposta chegar. Se o sensor só enxerga um sentido do tráfego (captura assimétrica), nada responde e a regra conta tudo, como antes. Consequência: varrer só hosts que respondem tudo (um rastreamento de servidores web ativos) não é visto como varredura horizontal.
 
 **Técnica MITRE ATT&CK.** [T1046 Network Service Discovery](https://attack.mitre.org/techniques/T1046/): Varredura de portas é descoberta de serviços de rede. É uma técnica *compatível* com o indício, não confirmada.
 
-**Contexto do alerta.** `tipo` (vertical/horizontal), `origem`, `destino` (vertical) ou `porta` (horizontal), `portas_distintas` ou `hosts_distintos`, `janela`, `portas_exemplo`.
+**Contexto do alerta.** `tipo` (vertical/horizontal), `origem`, `destino` (vertical) ou `porta` (horizontal), `portas_distintas` (vertical) ou `hosts_distintos` e `sem_resposta` (horizontal: hosts sondados e quantos não responderam), `janela`, `portas_exemplo`.
 
 **O que investigar.** Quem é a origem? Se for interna, é uma máquina sua ou desconhecida? Se for a própria máquina, qual programa está abrindo conexões (`ss -tpn`)? Se for externa, os destinos são serviços expostos?
 
-**Falsos positivos esperados (ainda não observados).**
-- Scanners de vulnerabilidade e de inventário que você mesmo roda (nmap, Nessus, OpenVAS).
-- Ferramentas de descoberta de rede e ferramentas de monitoramento que testam muitas portas.
-- Clientes P2P ou aplicativos que abrem conexões a muitos pares na mesma porta.
+**Falsos positivos.**
+- *Observado em máquina real (corrigido):* um navegador carregando páginas pesadas abria conexões a 20 ou mais hosts na porta 443 em 10 s e gerava 58 alertas ALTA numa semana. Agora o critério de resposta (acima) os exclui; o caso `scan-web-navegador` do catálogo prova isso, e o `scan-horizontal-443` prova que uma varredura real da 443 continua alertando.
+- *Verdadeiro positivo observado:* um nmap rodado de propósito (13 alertas verticais, até ~5 mil portas) foi detectado; é o caso `scan-nmap-vertical`.
+- *Esperados (ainda não observados):* scanners de vulnerabilidade e de inventário que você mesmo roda (nmap, Nessus, OpenVAS), ferramentas de descoberta de rede e de monitoramento que testam muitas portas, e clientes P2P que abrem conexões a muitos pares na mesma porta.
 
 **Como ajustar.** Esta regra não tem lista de exceções. Suba `vertical_ports` ou `horizontal_hosts` se a rede tiver tráfego legítimo assim, ou desligue a regra. Para um scanner próprio, o caminho é combinar limiar mais alto com a janela menor.
 
@@ -106,7 +106,7 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Por que importa.** Malware com algoritmo de geração de domínios (DGA) testa centenas de nomes gerados até achar o que o atacante registrou como servidor de comando e controle. A maioria não existe e responde NXDOMAIN.
 
-**Padrões.** Janela 30 s; ≥10 respostas e ≥8 domínios distintos; cooldown 2 min; sufixos ignorados `in-addr.arpa` e `ip6.arpa`.
+**Padrões.** Janela 30 s; ≥10 respostas e ≥8 domínios distintos; cooldown 2 min; sufixos ignorados `in-addr.arpa` e `ip6.arpa`. Nomes cujo primeiro rótulo começa com `_` (descoberta de serviço, como `_https._tcp.host`) não contam: um DGA gera nomes comuns, mas quem usar esse prefixo para esconder o DGA passaria por esta regra.
 
 **Técnica MITRE ATT&CK.** [T1568.002 Dynamic Resolution: Domain Generation Algorithms](https://attack.mitre.org/techniques/T1568/002/): A rajada de NXDOMAIN é o rastro de um malware testando domínios gerados por algoritmo. É uma técnica *compatível* com o indício, não confirmada.
 
@@ -116,6 +116,7 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Falsos positivos.**
 - *Tratado por padrão:* consultas de DNS reverso (`in-addr.arpa`, `ip6.arpa`), que dão NXDOMAIN o tempo todo em redes privadas.
+- *Observado em máquina real (corrigido):* consultas SRV `_https._tcp.<host>` do apt e de outros clientes (5 alertas numa semana), que voltam NXDOMAIN. Agora não contam; o caso `nxdomain-srv-apt` do catálogo prova isso, e o `nxdomain-dga-com-srv` prova que um DGA misturado a SRV continua alertando.
 - *Esperados (ainda não observados):* nomes de busca (search domains) mal configurados, que tentam vários sufixos; navegadores e clientes de e-mail sondando nomes inexistentes; ferramentas de rede de descoberta (mDNS, WPAD).
 
 **Como ajustar.** `ignore_suffixes` ignora um domínio e seus subdomínios; sem tecla `i` para esta regra, edite pela tela de configurações. Também dá para subir `min_responses` e `min_distinct`.
@@ -138,9 +139,9 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **O que investigar.** O domínio base é conhecido? Os subdomínios parecem dados em base32/base64? Qual processo consulta?
 
-**Falsos positivos esperados (ainda não observados).**
-- CDNs, serviços de nuvem, antivírus e telemetria que usam subdomínios longos e aleatórios por design.
-- Verificação de reputação por DNS (listas de bloqueio, DNSBL).
+**Falsos positivos.**
+- *Observado em máquina real:* 1 alerta numa semana, para um nome de balanceador de carga da nuvem (`...elb.amazonaws.com`) com rótulos longos. Trate com `allowed_bases` (a tecla `i` sugere o `dominio_base`).
+- *Esperados (ainda não observados):* CDNs, antivírus e telemetria que usam subdomínios longos e aleatórios por design, e verificação de reputação por DNS (listas de bloqueio, DNSBL).
 
 **Como ajustar.** `allowed_bases` isenta um domínio base, e a tecla `i` do alerta já sugere o `dominio_base`. Também dá para subir `min_label_len`, `min_entropy` ou `min_queries`.
 
@@ -162,9 +163,9 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **O que investigar.** Muitas consultas ao mesmo domínio (laço de aplicação) ou a muitos domínios distintos (varredura)?
 
-**Falsos positivos esperados (ainda não observados).**
-- Máquina que funciona como resolvedor local ou encaminhador para outras (o "cliente" é a rede toda).
-- Aplicativos que resolvem centenas de nomes de uma vez (navegador carregando uma página pesada, atualização de pacotes, pré-busca de links).
+**Falsos positivos.**
+- *Observado em máquina real:* 3 alertas numa semana, de 200 consultas a ~75 domínios distintos em 10 s, compatível com um navegador carregando uma página pesada. Poucos o bastante para manter o padrão; suba `min_queries` se incomodar.
+- *Esperados (ainda não observados):* máquina que funciona como resolvedor local ou encaminhador para outras (o "cliente" é a rede toda), atualização de pacotes e pré-busca de links.
 
 **Como ajustar.** Sem lista de exceções. Suba `min_queries` ou a janela, ou desligue a regra se a máquina for um resolvedor.
 
@@ -193,13 +194,11 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **O que investigar.** Qual programa abriu a conexão? O destino é conhecido?
 
-**Falsos positivos esperados (ainda não observados).**
-- Aplicativos internos ou de IoT que conectam por IP.
-- Dispositivos e softwares antigos que só falam TLS 1.0/1.1.
-- Clientes de linha de comando, bibliotecas e alguns jogos que não enviam SNI.
-- Serviços com identificadores longos e gerados no nome (`id` de sessão no subdomínio).
+**Falsos positivos.**
+- *Observado em máquina real:* SNI de alta entropia em nomes legítimos (8 alertas numa semana): rótulos numerados de armazenamento de nuvem (por exemplo `productionresultssa8.blob.core.windows.net`, com 20 letras e entropia 3,68, perto do limite de 3,6) e identificadores por sessão de serviços antifraude (um rótulo de 59 caracteres sob `online-metrix.net`). A entropia **não separa** isso do ataque, então o limiar não mudou: libere o sufixo com `allowed_bases` (a tecla `i` do alerta sugere o SNI sem o primeiro rótulo). O caso `tls-sni-azure-blob` do catálogo prova o alerta e o ajuste.
+- *Esperados (ainda não observados):* aplicativos internos ou de IoT que conectam por IP; dispositivos e softwares antigos que só falam TLS 1.0/1.1; clientes de linha de comando, bibliotecas e alguns jogos que não enviam SNI.
 
-**Como ajustar.** `allowed_bases` isenta um domínio base **só da checagem de entropia**; os demais motivos não têm exceção. Dá para subir `missing_sni_min`, `min_label_len` ou `min_entropy`.
+**Como ajustar.** `allowed_bases` isenta um domínio **e seus subdomínios** (comparação por sufixo: `windows.net` libera tudo sob ele, `blob.core.windows.net` só o armazenamento; em plataformas compartilhadas isso cobre outros inquilinos, então prefira o sufixo mais estreito) **só da checagem de entropia**; os demais motivos não têm exceção. Dá para subir `missing_sni_min`, `min_label_len` ou `min_entropy`.
 
 ---
 
