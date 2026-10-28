@@ -4,7 +4,7 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 
 ## Estrutura
 
-- `cmd/psychoscope` (daemon) e `cmd/psychoscope-cli` (CLI e TUI; `alerts -v` mostra o contexto). `doctor` = `doctor.go` (orquestra e sai com 1 se houver falha), `doctor_checks.go` (decisões puras), `doctor_env.go` (único I/O de sistema, atrás de `doctorEnv`), `doctor_sensor.go` (`--check` do sensor) e `doctor_report.go` (texto e JSON).
+- `cmd/psychoscope` (daemon) e `cmd/psychoscope-cli` (CLI e TUI; `alerts -v` mostra o contexto). `doctor` = `doctor.go` (orquestra e sai com 1 se houver falha), `doctor_checks.go` (decisões puras), `doctor_env.go` (único I/O de sistema, atrás de `doctorEnv`), `doctor_sensor.go` (`--check` do sensor) e `doctor_report.go` (texto e JSON). `analyze` = `analyze.go` (flags, motor vazio e `--set`; sai com 2 em `--fail-on-alert`), `analyze_env.go` (único I/O: roda o sensor sobre o pcap e recebe os eventos por um socket temporário, atrás de `eventSource`) e `analyze_report.go` (texto e JSON, instante do evento em UTC); não usa o Core, o `overrides.json` nem o estado do motor.
 - `internal/ipc`: `core.sock`. `server.go` (aceita e lê), `handshake.go` (Hello, `SO_PEERCRED`, recusa), `handler.go` (interfaces `Authorizer`/`Handler`), `session.go` (comandos ACK/NACK), `framer.go`, `listen.go`, `counters.go` (limita `StatusModulo.contadores`: até 64 chaves de até 64 caracteres em `[a-z0-9._-]`; o resto é descartado antes de qualquer consumidor).
 - `internal/supervisor`: `supervisor.go` (API: Run/Stop/Command/List), `ipc_integration.go` (autorização por PID e estado da conexão), `lifecycle.go` (processo filho: backoff, watchdog, parada em escalada).
 - `internal/detection` (+ `rules/`): janela deslizante, motor, regras. `internal/alerts`: barramento e histórico.
@@ -14,7 +14,7 @@ Hub do Psychoscope MODR em Go: supervisiona módulos, recebe telemetria por IPC,
 - `internal/tui`: `model.go` (estado, `Update` e despacho de teclas), `cmdline.go` (linha de comando `:`; tabela `commands`: `q`, `q!`, `quit`, `stop`, `config`, `set`, `w`, `wq`) e `lineeditor.go` (editor de linha), `detail.go` (detalhe do alerta com rolagem e as teclas `i` e `u`, que acrescentam e removem a exceção sugerida), `settings.go` e `settings_view.go` (tela de configurações: rascunho, `:set`, `:w`), `messages.go`, `commands.go` (chamadas assíncronas), `view.go` e `panels.go`.
 - `internal/config`: `config.go` (`Load`/`Validate`), `env.go`, `file.go` (flags e esquema JSON), uma seção por arquivo (`modules`, `storage`, `metrics`, `detection`), `overlay.go` e `overrides.go` (`Overrides`: ajustes por caminho; `Layer` os aplica sobre a base sem alterá-la).
 - `internal/app`: ponto de composição (`app.go`: `build` → `listen` → `serve`, com encerramento ordenado), `sink.go` (telemetria → motor), `metrics.go` (coletores) e `settings.go` (liga `internal/settings` ao motor e ao gravador).
-- `deploy/` (unit do systemd, `install.sh`, `get.sh`: baixa, atualiza e desinstala, instalado como `psychoscope-update`; testes `test_install.sh` e `test_get.sh`), `docs/INSTALL.md` e `docs/REGRAS.md` (referência por regra: o que detecta, como investigar, falsos positivos, ajuste).
+- `deploy/` (unit do systemd, `install.sh`, `get.sh`: baixa, atualiza e desinstala, instalado como `psychoscope-update`; testes `test_install.sh` e `test_get.sh`), `docs/INSTALL.md`, `docs/REGRAS.md` (referência por regra: o que detecta, como investigar, falsos positivos, ajuste) e `docs/FALSOS-POSITIVOS.md` (do falso positivo ao pcap de teste com `analyze`).
 
 ## Comandos
 

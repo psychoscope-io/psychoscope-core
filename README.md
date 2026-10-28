@@ -48,7 +48,7 @@ O que cada regra detecta, como investigar um alerta e como ajustar os falsos pos
   Subcomandos: `list`, `cmd <modulo> pause|resume|reconfigure|stop [k=v]`, `config [-v] [prefixo]` / `config set campo=valor ...` /
   `config reset campo ...`, `alerts [--no-history] [-v]` (ao vivo),
   `alerts --history [-n 50] [--since 2h] [--min-severity alta] [--rule R] [--module M] [-v]` (persistido; `-v` mostra o contexto
-  `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `doctor` (veja abaixo), `--version`.
+  `chave=valor` de cada alerta, uma linha recuada por chave), `metrics`, `doctor` e `analyze` (veja abaixo), `--version`.
 
 ## Diagnóstico (`psychoscope-cli doctor`)
 
@@ -72,6 +72,37 @@ O código de saída é **1 se houver alguma falha** e 0 caso contrário (avisos 
 - `--sensor`: também roda o `--check` do `mod-net-sensor` configurado (até 10 s) e repassa as falhas, avisos e correções dele. O arquivo de configuração costuma ser legível só pelo grupo `psychoscope`; sem acesso, o doctor avisa e segue. O `--check` roda com a identidade de quem chamou, e não com a do serviço; a saída traz o comando para reproduzir como o serviço (`sudo -u psychoscope ...`).
 - `--json`: o mesmo relatório como JSON estável, `{"resultado": {"falhas", "avisos"}, "achados": [{"nivel", "item", "detalhe", "como_corrigir"}]}`, com `nivel` em `ok`, `aviso`, `falha` ou `pulado`.
 - Se o Core não responde, o que depende dele aparece como `[pulado]`, sem repetir o mesmo erro.
+
+## Análise offline de um pcap (`psychoscope-cli analyze`)
+
+Roda as regras de detecção sobre um arquivo `.pcap`, para reproduzir um alerta, testar um ajuste ou avaliar a ferramenta **sem instalar o serviço**.
+Não precisa de root, de systemd nem do Core em execução, e não lê nem grava `engine-state.json`, `alerts.db` ou `overrides.json`: cada execução
+começa com o motor vazio e só depende dos argumentos e do arquivo, então repetir o comando dá sempre o mesmo resultado.
+
+```bash
+psychoscope-cli analyze captura.pcap
+psychoscope-cli analyze --rule net.beacon --set detection.beacon.max_cv=0.1 captura.pcap
+```
+
+Quem lê o pcap é o `mod-net-sensor` (precisa estar no `PATH` ou em `/usr/local/bin`, ou indicado com `--sensor`): o `analyze` o executa sobre o
+arquivo e recebe os eventos por um socket temporário (modo `0700`, apagado ao fim), pelo mesmo caminho do serviço. O tempo das regras é o do pacote,
+não o relógio da máquina, e cada alerta mostra o instante do evento (UTC).
+
+| Opção | Efeito |
+|---|---|
+| `--set detection.<regra>.<campo>=valor` | testa um ajuste de limiar (repetível; mesmo texto do `config set`: durações como `30s`, listas separadas por vírgula). Só campos de detecção |
+| `--config caminho` | parte de um arquivo de configuração em vez dos padrões embutidos (sem ele, o resultado independe da máquina) |
+| `--rule regra` | mostra só os alertas dessa regra (as demais regras continuam rodando) |
+| `--json` | um objeto JSON com `eventos`, `inicio`, `fim`, `alertas` (instante, severidade, regra, descrição, contexto), `por_regra` e `incompleta` |
+| `--fail-on-alert` | sai com **2** se houver alertas (para testes de regressão e CI) |
+| `--sensor caminho` | binário do sensor |
+| `--timeout 5m`, `--max-alerts 10000` | limites: o sensor é encerrado ao fim do prazo; alertas além do teto são descartados e contados |
+
+A saída tem um alerta por bloco, no estilo de `alerts -v` (o contexto `chave=valor` logo abaixo), e um resumo: eventos analisados, intervalo de tempo e
+alertas por regra. Código de saída: **0** se a análise terminou (com ou sem alertas), **1** em erro (arquivo ilegível, sensor ausente ou com falha,
+prazo estourado; os alertas já encontrados são impressos, marcados como análise incompleta), **2** só com `--fail-on-alert` e alertas.
+O pcap é tratado como entrada hostil: o `analyze` só confere que é um arquivo comum e não vazio, e o sensor faz o resto dentro dos limites dele.
+Para transformar um falso positivo em caso de teste, veja [docs/FALSOS-POSITIVOS.md](docs/FALSOS-POSITIVOS.md).
 
 ## Configuração em tempo de execução
 

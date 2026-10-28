@@ -158,6 +158,17 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
   sudo userdel psychoscope
   ```
 
+## Experimentar sem instalar o serviço
+
+Para avaliar a ferramenta, reproduzir um alerta ou testar um ajuste de limiar a partir de um pcap, basta o `psychoscope-cli` e o `mod-net-sensor`
+no `PATH` (ou `--sensor caminho`), sem root nem systemd:
+
+```bash
+psychoscope-cli analyze captura.pcap
+```
+
+Detalhes e opções no README (seção "Análise offline de um pcap").
+
 ## Solução de problemas
 
 Comece por `psychoscope-cli doctor` (com `--sensor` para incluir o `--check` do sensor): ele distingue serviço parado, socket ausente, falta de permissão e UID não autorizado, mostra o estado de cada módulo e a perda de pacotes, e imprime o comando de correção. O código de saída é 1 se houver falha.
@@ -167,6 +178,7 @@ Comece por `psychoscope-cli doctor` (com `--sensor` para incluir o `--check` do 
 | `nao foi possivel iniciar a captura ... Operation not permitted` no log do sensor | `setcap` ausente, ou `NoNewPrivileges=yes` na unit |
 | `nao foi possivel iniciar a captura ... No such device` / `a interface 'eth0' nao existe` | o nome da interface em `args` não existe nesta máquina: rode `mod-net-sensor --list-interfaces` e ajuste `["-i", "<nome>"]` |
 | o sensor sobe, mas o Core não mostra eventos | rode `mod-net-sensor --check -i <interface>`: ele confere permissão, filtro BPF e se o Core está escutando, e diz o que corrigir; `--print` mostra os eventos sem o Core |
+| `analyze`: `nao encontrei o mod-net-sensor` | instale o sensor no `PATH` ou em `/usr/local/bin`, ou use `--sensor /caminho/mod-net-sensor` |
 | `error while loading shared libraries: libpcap.so.0.8` | instale `libpcap0.8` |
 | `armazenamento de alertas em ...: ... (defina storage.enabled=false ...)` | o usuário `psychoscope` não consegue escrever em `storage.path`; use o padrão (`StateDirectory`) ou ajuste permissões |
 | `psychoscope-cli`: `permission denied`, `no such file or directory` ou conexão encerrada sem resposta | `psychoscope-cli doctor` diz qual: serviço parado, caminho do socket errado, usuário fora do grupo `psychoscope` ou UID fora de `allowed_uids` (ou use `sudo`) |
