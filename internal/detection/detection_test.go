@@ -276,3 +276,44 @@ func TestRulesSeeEventAlreadyInWindow(t *testing.T) {
 }
 
 func tsOf(t time.Time) *timestamppb.Timestamp { return timestamppb.New(t) }
+
+func TestSubmitWaitBlocksOnFullQueueInsteadOfDropping(t *testing.T) {
+	e := NewEngine(EngineConfig{QueueSize: 1}, nil, nopPublisher{})
+	ev := &psychoscopev1.EventoFluxoRede{IpOrigem: "a", IpDestino: "b"}
+	if err := e.SubmitWait(context.Background(), "m", ev); err != nil {
+		t.Fatal(err)
+	}
+	if e.Submit("m", ev) {
+		t.Fatal("Submit devia descartar com a fila cheia")
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- e.SubmitWait(context.Background(), "m", ev) }()
+	select {
+	case err := <-done:
+		t.Fatalf("SubmitWait devia esperar a fila esvaziar, voltou com %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go e.Run(ctx)
+	if err := <-done; err != nil {
+		t.Fatalf("SubmitWait devia entrar quando o motor drenou: %v", err)
+	}
+	cancel()
+
+	full := NewEngine(EngineConfig{QueueSize: 1}, nil, nopPublisher{})
+	_ = full.SubmitWait(context.Background(), "m", ev)
+	cctx, ccancel := context.WithCancel(context.Background())
+	ccancel()
+	if err := full.SubmitWait(cctx, "m", ev); err == nil {
+		t.Fatal("SubmitWait com contexto cancelado e fila cheia devia devolver erro")
+	}
+	if got := e.Stats().Dropped; got != 1 {
+		t.Errorf("descartes = %d, queria 1 (so o Submit)", got)
+	}
+}
+
+type nopPublisher struct{}
+
+func (nopPublisher) Publish(*psychoscopev1.Alerta) {}

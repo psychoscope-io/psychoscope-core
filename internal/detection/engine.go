@@ -130,6 +130,20 @@ func (e *Engine) Submit(module string, n *psychoscopev1.EventoFluxoRede) bool {
 	}
 }
 
+// SubmitWait enfileira como Submit, mas espera haver espaco na fila em vez de descartar. E para
+// quem le uma fonte finita e precisa de todos os eventos (analise offline de um pcap); o servico
+// ao vivo usa Submit, que nunca bloqueia. Devolve o erro do contexto se ele acabar antes.
+func (e *Engine) SubmitWait(ctx context.Context, module string, n *psychoscopev1.EventoFluxoRede) error {
+	ev := NewEvent(module, n, time.Now())
+	select {
+	case e.in <- ev:
+		e.received.Add(1)
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Stats devolve um retrato dos contadores.
 func (e *Engine) Stats() Stats {
 	return Stats{
