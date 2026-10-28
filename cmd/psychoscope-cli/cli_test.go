@@ -186,8 +186,11 @@ func TestAlertsVerboseShowsContext(t *testing.T) {
 	if !strings.Contains(verbose, want) {
 		t.Fatalf("contexto ordenado e recuado sob o alerta:\n%s", verbose)
 	}
-	if strings.Contains(verbose, "descricao ctx2\n    ") || !strings.HasSuffix(verbose, "-- 2 de 2 alertas --\n") {
-		t.Fatalf("alerta sem contexto nao ganha linhas extras:\n%s", verbose)
+	if !strings.Contains(verbose, "descricao ctx2\n    tecnica=T1046 Network Service Discovery\n-- 2") || !strings.HasSuffix(verbose, "-- 2 de 2 alertas --\n") {
+		t.Fatalf("alerta sem contexto so ganha a linha da tecnica ATT&CK:\n%s", verbose)
+	}
+	if !strings.Contains(verbose, "dominios_exemplo=1.0.17.172.in-addr.arpa,1.0.18.172.in-addr.arpa\n    tecnica=T1568.002 Dynamic Resolution: Domain Generation Algorithms\n") {
+		t.Fatalf("a tecnica vem depois do contexto:\n%s", verbose)
 	}
 
 	// ao vivo

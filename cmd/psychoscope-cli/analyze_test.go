@@ -152,6 +152,7 @@ func TestAnalyzeReportsAlertsWithEventTime(t *testing.T) {
 	for _, want := range []string{
 		"2023-11-14 22:13:21Z [MEDIA] net.scan.syn:", // instante do 15o SYN, nao o relogio
 		"    portas_distintas=15",
+		"    tecnica=T1046 Network Service Discovery",
 		"eventos analisados: 30 (de 2023-11-14 22:13:20 a 2023-11-14 22:13:23, UTC)",
 		"alertas: 1 (net.scan.syn=1)",
 	} {
@@ -236,6 +237,9 @@ func TestAnalyzeRuleFilterJSONAndExitCode(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(out), &j); err != nil || len(j.Alertas) != 1 || j.Alertas[0].Contexto["origem"] != scanSource {
 		t.Errorf("JSON sem o alerta: %v %+v", err, j)
+	}
+	if j.Alertas[0].Tecnica != "T1046 Network Service Discovery" {
+		t.Errorf("JSON sem a tecnica ATT&CK: %q", j.Alertas[0].Tecnica)
 	}
 
 	if _, err := runAnalyze(t, fakeSource{events: scanEvents(30)}, "--fail-on-alert", pcap); !errors.Is(err, errAnalyzeAlerts) {

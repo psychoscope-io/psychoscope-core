@@ -67,6 +67,7 @@ func TestDetailShowsEveryField(t *testing.T) {
 	for _, want := range []string{
 		"Alerta · Rajada de NXDOMAIN",
 		"Regra", "Rajada de NXDOMAIN (net.dns.nxdomain_burst)",
+		"ATT&CK", "T1568.002 Dynamic Resolution: Domain Generation Algorithms",
 		"Severidade", "MEDIA",
 		"Detectado", "2026-10-20T22:03:56Z",
 		"Evento", "2026-10-20T22:03:55Z",
@@ -106,6 +107,16 @@ func descriptionOnScreen(view string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func TestDetailOmitsAttackWhenTheRuleHasNone(t *testing.T) {
+	a := burstAlert()
+	a.Regra = "net.dns.rate"
+	m := modelWithAlerts(t, 100, 30, a)
+	m.Update(key("enter"))
+	if v := plain(m); strings.Contains(v, "ATT&CK") {
+		t.Errorf("net.dns.rate nao tem tecnica equivalente:\n%s", v)
+	}
 }
 
 func TestDetailKeepsInvalidEventTimeInContext(t *testing.T) {

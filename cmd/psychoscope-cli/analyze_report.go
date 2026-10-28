@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -100,6 +101,7 @@ type jsonAlert struct {
 	Severidade string            `json:"severidade"`
 	Regra      string            `json:"regra"`
 	Descricao  string            `json:"descricao"`
+	Tecnica    string            `json:"tecnica,omitempty"` // ATT&CK compativel (ID e nome), se a regra tem uma
 	Contexto   map[string]string `json:"contexto"`
 }
 
@@ -134,9 +136,13 @@ func (an *analysis) writeJSON(out io.Writer) error {
 		if ctx == nil {
 			ctx = map[string]string{}
 		}
+		tecnica := ""
+		if t, ok := rules.TechniqueOf(a.Regra); ok {
+			tecnica = t.String()
+		}
 		j.Alertas = append(j.Alertas, jsonAlert{
 			Instante: ts, Severidade: strings.TrimPrefix(a.Severidade.String(), "SEVERIDADE_"),
-			Regra: a.Regra, Descricao: a.Descricao, Contexto: ctx,
+			Regra: a.Regra, Descricao: a.Descricao, Tecnica: tecnica, Contexto: ctx,
 		})
 	}
 	enc := json.NewEncoder(out)

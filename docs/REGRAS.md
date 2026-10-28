@@ -8,6 +8,7 @@ Sobre os falsos positivos: cada seção separa o que **já foi visto em máquina
 
 - **Severidade:** BAIXA (vale registrar), MÉDIA (vale olhar), ALTA (olhe agora).
 - **Cooldown:** depois de disparar, a regra fica calada para a mesma chave (por exemplo, o mesmo cliente) durante o "Intervalo entre alertas". Isso evita repetir o mesmo alerta, mas significa que a **contagem de alertas não é a contagem de eventos**.
+- **Técnica ATT&CK:** cada regra indica, quando existe, a técnica do [MITRE ATT&CK](https://attack.mitre.org) compatível com o que detectou (`alerts -v`, o detalhe da TUI e o `analyze --json` mostram `ID nome`). É para enquadrar o que foi visto, não um diagnóstico: o alerta é um indício, e as regras sem técnica equivalente dizem isso na própria seção.
 - **Contexto:** `psychoscope-cli alerts -v` (ou `Enter` no alerta, na TUI) mostra as chaves que explicam o disparo. Cada seção abaixo lista as suas.
 - **Tempo:** todas as janelas são medidas no instante dos eventos de rede, não no relógio da máquina.
 
@@ -35,6 +36,8 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Padrões.** Janela 10 s; ≥15 portas distintas num destino (vertical); ≥20 destinos distintos na mesma porta (horizontal); cooldown 1 min; examina até 5000 eventos da origem por avaliação.
 
+**Técnica MITRE ATT&CK.** [T1046 Network Service Discovery](https://attack.mitre.org/techniques/T1046/): Varredura de portas é descoberta de serviços de rede. É uma técnica *compatível* com o indício, não confirmada.
+
 **Contexto do alerta.** `tipo` (vertical/horizontal), `origem`, `destino` (vertical) ou `porta` (horizontal), `portas_distintas` ou `hosts_distintos`, `janela`, `portas_exemplo`.
 
 **O que investigar.** Quem é a origem? Se for interna, é uma máquina sua ou desconhecida? Se for a própria máquina, qual programa está abrindo conexões (`ss -tpn`)? Se for externa, os destinos são serviços expostos?
@@ -58,6 +61,8 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Padrões.** Janela 30 s; ≥10 conexões; portas 21, 22, 23, 445, 3389 e 5900; cooldown 5 min.
 
+**Técnica MITRE ATT&CK.** [T1110 Brute Force](https://attack.mitre.org/techniques/T1110/): Muitas tentativas de conexão a um serviço de autenticação. É uma técnica *compatível* com o indício, não confirmada.
+
 **Contexto do alerta.** `origem`, `destino`, `porta`, `conexoes`, `janela`.
 
 **O que investigar.** A origem é externa e o serviço está exposto? Veja o log do serviço (`journalctl -u ssh`) para tentativas falhas. Se o serviço aceita senha, considere chave pública.
@@ -80,6 +85,8 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Padrões.** Janela 10 s; ≥20 destinos distintos; cooldown 1 min.
 
+**Técnica MITRE ATT&CK.** [T1018 Remote System Discovery](https://attack.mitre.org/techniques/T1018/): Varrer ping em muitos hosts é descoberta de sistemas remotos. É uma técnica *compatível* com o indício, não confirmada.
+
 **Contexto do alerta.** `origem`, `hosts_distintos`, `janela`.
 
 **O que investigar.** A origem é uma ferramenta sua de monitoramento? Se não for, trate como o reconhecimento de uma varredura de portas.
@@ -100,6 +107,8 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 **Por que importa.** Malware com algoritmo de geração de domínios (DGA) testa centenas de nomes gerados até achar o que o atacante registrou como servidor de comando e controle. A maioria não existe e responde NXDOMAIN.
 
 **Padrões.** Janela 30 s; ≥10 respostas e ≥8 domínios distintos; cooldown 2 min; sufixos ignorados `in-addr.arpa` e `ip6.arpa`.
+
+**Técnica MITRE ATT&CK.** [T1568.002 Dynamic Resolution: Domain Generation Algorithms](https://attack.mitre.org/techniques/T1568/002/): A rajada de NXDOMAIN é o rastro de um malware testando domínios gerados por algoritmo. É uma técnica *compatível* com o indício, não confirmada.
 
 **Contexto do alerta.** `cliente`, `resolvedor`, `respostas_nxdomain`, `dominios_distintos`, `janela`, `dominios_exemplo`.
 
@@ -123,6 +132,8 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Padrões.** Janela 60 s; ≥5 consultas distintas; rótulo de ≥30 caracteres com entropia de Shannon ≥3,2 bits por caractere; cooldown 2 min. Domínios `.arpa` e `.local` não contam.
 
+**Técnica MITRE ATT&CK.** [T1071.004 Application Layer Protocol: DNS](https://attack.mitre.org/techniques/T1071/004/): Dados escondidos em consultas DNS usam o DNS como canal de comando e controle. É uma técnica *compatível* com o indício, não confirmada.
+
 **Contexto do alerta.** `cliente`, `dominio_base`, `consultas_distintas`, `janela`, `consulta_exemplo`.
 
 **O que investigar.** O domínio base é conhecido? Os subdomínios parecem dados em base32/base64? Qual processo consulta?
@@ -144,6 +155,8 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 **Por que importa.** Um volume anormal de consultas pode ser malware sondando nomes, exfiltração por DNS ou uma falha que consulta em laço, que também vale corrigir.
 
 **Padrões.** Janela 10 s; ≥200 consultas; cooldown 2 min.
+
+**Técnica MITRE ATT&CK.** Sem técnica equivalente: um pico de consultas DNS é volume, não o comportamento de uma técnica específica.
 
 **Contexto do alerta.** `cliente`, `consultas`, `dominios_distintos`, `janela`.
 
@@ -174,6 +187,8 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Padrões.** Cooldown 10 min por cliente e motivo; demais valores como na tabela acima.
 
+**Técnica MITRE ATT&CK.** Sem técnica equivalente: SNI com IP literal e versão antiga de TLS são anomalias de configuração, sem técnica que as descreva.
+
 **Contexto do alerta.** `motivo`, `cliente`, `destino`, `sni`, `versao_tls`; para "sem SNI", também `ocorrencias` e `janela`.
 
 **O que investigar.** Qual programa abriu a conexão? O destino é conhecido?
@@ -197,6 +212,8 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 **Por que importa.** Programas maliciosos instalados "ligam para casa" em intervalos fixos para receber ordens. A regularidade é o traço que os distingue de tráfego humano, que é irregular.
 
 **Padrões.** ≥8 contatos regulares; intervalo médio de 5 s a 1 h; variação (desvio dividido pela média) ≤0,2; cooldown 30 min; acompanha até 50.000 séries. Contatos mais próximos que o intervalo mínimo (5 s) contam como um só. Um silêncio maior que três vezes o intervalo médio reinicia a série.
+
+**Técnica MITRE ATT&CK.** [T1071 Application Layer Protocol](https://attack.mitre.org/techniques/T1071/): Contato periódico com um destino é o padrão de comunicação de comando e controle sobre protocolos comuns. É uma técnica *compatível* com o indício, não confirmada.
 
 **Contexto do alerta.** `tipo` (tcp/dns), `origem`, `alvo`, `chave`, `intervalo_medio`, `amostras`, `variacao_pct`.
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/ctl"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/rules"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
@@ -53,7 +54,8 @@ func parseSeverity(s string) (psychoscopev1.Severidade, error) {
 }
 
 // formatAlert devolve a linha do alerta. Com verbose, o contexto vem logo abaixo, uma linha
-// recuada "chave=valor" por chave, em ordem; sem verbose a saida e uma linha so por alerta
+// recuada "chave=valor" por chave, em ordem, e depois a tecnica ATT&CK compativel (tecnica=ID nome)
+// quando a regra tem uma; sem verbose a saida e uma linha so por alerta
 // (scripts, como o e2e, contam linhas).
 func formatAlert(a *psychoscopev1.Alerta, verbose bool) string {
 	ts := "----/--/-- --:--:--"
@@ -66,7 +68,7 @@ func formatAlert(a *psychoscopev1.Alerta, verbose bool) string {
 // formatAlertAt monta a linha do alerta com o rotulo de tempo ts ja formatado.
 func formatAlertAt(ts string, a *psychoscopev1.Alerta, verbose bool) string {
 	line := fmt.Sprintf("%s [%s] %s: %s", ts, strings.TrimPrefix(a.Severidade.String(), "SEVERIDADE_"), a.Regra, a.Descricao)
-	if !verbose || len(a.Contexto) == 0 {
+	if !verbose {
 		return line
 	}
 	keys := make([]string, 0, len(a.Contexto))
@@ -78,6 +80,9 @@ func formatAlertAt(ts string, a *psychoscopev1.Alerta, verbose bool) string {
 	b.WriteString(line)
 	for _, k := range keys {
 		b.WriteString("\n    " + k + "=" + a.Contexto[k])
+	}
+	if t, ok := rules.TechniqueOf(a.Regra); ok {
+		b.WriteString("\n    tecnica=" + t.String())
 	}
 	return b.String()
 }

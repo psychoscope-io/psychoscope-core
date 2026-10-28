@@ -108,6 +108,9 @@ func detailLines(a *psychoscopev1.Alerta, w int, ig ignoreInfo) []string {
 
 	var out []string
 	out = append(out, field("Regra", ruleTitle(a.Regra))...)
+	if t, ok := rules.TechniqueOf(a.Regra); ok {
+		out = append(out, field("ATT&CK", t.String())...)
+	}
 	out = append(out, labeled("Severidade", []string{sevStyle(a.Severidade).Render(sevName(a.Severidade))})...)
 	out = append(out, field("Detectado", detectedAt(a))...)
 	evento, hasEvent := eventTime(a)
