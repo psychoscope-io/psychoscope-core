@@ -75,7 +75,7 @@ Seções opcionais (valores padrão entre parênteses):
 | `storage` | `enabled` (true), `path` (`/var/lib/psychoscope/alerts.db`), `retention_days` (30), `max_alerts` (100000) |
 | `metrics` | `listen` (desligado; ex.: `"127.0.0.1:9464"`), `allow_non_loopback` (false) |
 | `detection` | `window` (60s), `disabled` (lista de regras), e uma seção por regra: `scan`, `nxdomain`, `tunnel`, `dns_rate`, `tls`, `beacon`, `bruteforce`, `icmp_sweep` — veja o README para as chaves de cada uma |
-| raiz | `allowed_uids` (UIDs extras com acesso ao canal de controle), `socket_mode` (`0660` ou `0600`), `status_interval`, `log_level`, `overrides_path` (arquivo dos ajustes feitos pela TUI/CLI; padrão `/var/lib/psychoscope/overrides.json`) |
+| raiz | `allowed_uids` (UIDs extras com acesso ao canal de controle), `socket_mode` (`0660` ou `0600`), `status_interval`, `log_level`, `overrides_path` (arquivo dos ajustes feitos pela TUI/CLI; padrão `/var/lib/psychoscope/overrides.json`), `engine_state_path` (estado do motor, padrão `/var/lib/psychoscope/engine-state.json`) e `engine_state_interval` (padrão `60s`; `0s` grava só no encerramento) |
 
 Chaves desconhecidas são rejeitadas na partida com a lista das válidas.
 
@@ -137,7 +137,7 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
   reinicia o serviço (inclui o `daemon-reload`, necessário porque a atualização pode trocar a unit). A configuração e o
   banco de alertas são preservados. Sem o atualizador, repita o passo 2 com os novos tarballs e rode
   `sudo systemctl daemon-reload && sudo systemctl restart psychoscope`.
-- **Backup:** copie `/etc/psychoscope/` e `/var/lib/psychoscope/alerts.db` (SQLite em modo WAL; use
+- **Backup:** copie `/etc/psychoscope/` e `/var/lib/psychoscope/alerts.db` (o `engine-state.json`, ao lado dele, é descartável: guarda IPs e domínios do tráfego, e perdê-lo só faz o beacon recomeçar) (SQLite em modo WAL; use
   `sqlite3 alerts.db ".backup alerts.bak"` com o serviço rodando).
 - **Desinstalar:** `psychoscope-update --uninstall` para o serviço e remove a unit e os binários, mantendo configuração e
   alertas; com `--purge` apaga também `/etc/psychoscope`, `/var/lib/psychoscope` e o usuário (pede confirmação; `--yes`

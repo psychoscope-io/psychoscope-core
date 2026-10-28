@@ -88,8 +88,9 @@ dele. Ordem de precedência: padrão do Core < arquivo do administrador < ajuste
   tela) e `storage.retention_days` e `storage.max_alerts`. **Nunca** pelo canal: `modules` (caminho e argumentos de um módulo seriam execução de
   código), sockets, `socket_mode`, `allowed_uids`, `metrics.listen`, `storage.path` e `detection.queue_size` e `max_events` (exigem reinício).
   O arquivo de ajustes é lido com chaves estritas: qualquer outra chave impede a partida, com uma mensagem que cita o arquivo.
-- **Aplicação ao vivo.** As regras e a janela do motor são trocadas sem perder os eventos retidos; os **cooldowns e o estado interno das regras
-  (como as séries do beacon) recomeçam**, então um alerta já visto pode reaparecer uma vez. Os limites de retenção valem na hora (poda imediata).
+- **Aplicação ao vivo.** As regras e a janela do motor são trocadas sem perder os eventos retidos. Os cooldowns e o estado interno (como as séries do
+  beacon) **das regras que você não ajustou continuam**; só as regras cuja configuração mudou recomeçam, de modo que ao alterar um limiar o alerta
+  volta a aparecer na hora, e mexer numa regra não repete os alertas das outras. Os limites de retenção valem na hora (poda imediata).
 - **Listas são substituídas, não somadas.** Um campo de lista (como `ignore_destinations`) com ajuste **substitui** a lista do arquivo do
   administrador, não se soma a ela. Ao ajustar (`i`, `:set`, `config set`), a lista que vale naquele momento, com os itens do arquivo, é copiada
   para o ajuste; depois disso, mudar essa lista no arquivo do administrador não tem efeito até você restaurar o campo (`d`, `:set campo&`,
@@ -119,6 +120,22 @@ identificadores, por ser a interface de scripts. Campo novo de regra exige a tag
 **CLI.** `psychoscope-cli config [-v] [prefixo]` lista; `config set campo=valor ...` ajusta (mostra antes e depois); `config reset campo ...`
 restaura. Exemplo: `sudo psychoscope-cli config set detection.beacon.ignore_destinations=149.154.160.0/20,2001:67c:4e8::/48`.
 
+## Estado do motor entre reinícios
+
+Sem isso, cada reinício do Core traria de volta os alertas já vistos e faria o `net.beacon`, que precisa de vários contatos regulares, recomeçar do zero.
+O Core grava o estado do motor (os cooldowns de todas as regras e as séries e cooldowns do beacon) em `engine-state.json`, no diretório de estado
+(`/var/lib/psychoscope/`, modo `0600`, diretório `0750`), no encerramento e a cada 60 s; na partida, lê o arquivo de volta.
+
+- **Chaves** (arquivo de configuração, não editáveis pelo canal de controle): `engine_state_path` (padrão `<estado>/engine-state.json`) e
+  `engine_state_interval` (padrão `60s`; `0s` grava só no encerramento).
+- **É só uma otimização.** Arquivo ilegível, de versão desconhecida, com mais de 6 h ou salvo "no futuro" (o relógio voltou atrás: restaurar deixaria o
+  beacon cego) é descartado com um aviso no log, e o Core sobe com o motor vazio; o próximo salvamento o substitui. Para zerar o estado de propósito,
+  apague o arquivo e reinicie.
+- **Queda abrupta** (`kill -9`, falta de energia) perde no máximo os últimos 60 s: o pior caso é um alerta repetido, nunca um alerta perdido.
+- **Mudança de configuração:** o estado das séries do beacon só vale com o mesmo `min_interval`; se ele mudou, as séries são descartadas e só os cooldowns ficam.
+- **Privacidade:** o arquivo contém IPs e domínios do tráfego observado, como o `alerts.db`; as permissões são as mesmas. Inclua-o (ou exclua-o) do backup conforme sua política.
+- **Métricas:** `psychoscope_engine_state_saves_total` e `psychoscope_engine_state_save_errors_total`.
+
 ## Uso rápido (desenvolvimento)
 
 Para só experimentar, sem montar configuração, rode `scripts/demo.sh` do [mod-net-sensor](https://github.com/psychoscope-io/mod-net-sensor#testar-em-minutos-demo): ele compila tudo, reproduz um pcap malicioso e abre a TUI.
@@ -140,6 +157,8 @@ Para montar o ambiente inteiro (clonar proto, core e sensor, atualizar e compila
     { "id": "mod-net-sensor", "path": "/usr/local/bin/mod-net-sensor", "args": ["-i", "eth0"], "stop_grace": "10s" }
   ],
   "storage": { "enabled": true, "path": "/var/lib/psychoscope/alerts.db", "retention_days": 30, "max_alerts": 100000 },
+  "engine_state_path": "/var/lib/psychoscope/engine-state.json",
+  "engine_state_interval": "60s",
   "metrics": { "listen": "127.0.0.1:9464" },
   "detection": {
     "window": "60s",
@@ -167,7 +186,8 @@ mesma ideia: `/var/lib/psychoscope` (ex.: `StateDirectory=`), senão `$XDG_STATE
 - Falsos positivos esperados: `net.dns.tunnel` e `net.tls.suspicious` (entropia) em CDNs/serviços com rótulos longos aleatórios — use
   `allowed_bases`; `net.beacon` em tarefas periódicas legítimas (verificações de conectividade, polling) — use `ignore_destinations`/`ignore_domains`/`ignore_ports`;
   `net.bruteforce.auth` em automação — use `ignore_sources`.
-- O estado do motor (janela, cooldowns, séries do beacon) é só em memória: reiniciar o Core o zera. Os alertas, não.
+- A janela deslizante é só em memória: reiniciar o Core a esvazia (ela se refaz em 10 a 60 s). Os cooldowns e as séries do beacon sobrevivem ao
+  reinício (veja [Estado do motor](#estado-do-motor-entre-reinícios)).
 - A versão TLS informada é a maior **oferecida** no ClientHello, não a negociada.
 - O endpoint de métricas não tem autenticação nem TLS.
 
