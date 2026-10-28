@@ -48,6 +48,7 @@ type Engine struct {
 
 	cooldown map[cooldownKey]time.Time // instante do ultimo alerta, no tempo dos eventos
 	reconf   chan reconfig             // pedidos de Reconfigure, tratados dentro de Run
+	snap     chan snapshotRequest      // pedidos de Snapshot, tratados dentro de Run
 
 	received, dropped, processed, alerts, suppressed, ruleErrors atomic.Uint64
 	windowLen                                                    atomic.Int64
@@ -70,6 +71,7 @@ func NewEngine(cfg EngineConfig, rules []Rule, pub Publisher) *Engine {
 	return &Engine{
 		rules: rules, window: NewWindow(cfg.Window, cfg.MaxEvents), pub: pub, log: cfg.Logger,
 		in: make(chan *Event, cfg.QueueSize), cooldown: map[cooldownKey]time.Time{}, reconf: make(chan reconfig),
+		snap: make(chan snapshotRequest),
 	}
 }
 
@@ -77,18 +79,21 @@ func NewEngine(cfg EngineConfig, rules []Rule, pub Publisher) *Engine {
 type reconfig struct {
 	rules []Rule
 	span  time.Duration
+	fresh []string // regras que comecam sem estado (configuracao alterada)
 	done  chan struct{}
 }
 
 // Reconfigure troca as regras e a duracao da janela com o motor rodando. A janela mantem os
-// eventos retidos (so descarta o que sai da nova duracao); cooldowns e o estado interno das
-// regras (como as series do beacon) recomecam, porque as regras novas sao instancias novas.
-// Os eventos que ja estavam na fila sao avaliados antes, com as regras antigas. ctx limita
-// so a entrega do pedido (motor parado ou travado): depois que o motor o aceita, a troca
-// sempre termina (esvaziar a fila e limitado), entao esperamos por ela. Devolver um erro de
-// contexto nesse ponto diria "nao aplicado" a quem ja teve o pedido aplicado.
-func (e *Engine) Reconfigure(ctx context.Context, rules []Rule, span time.Duration) error {
-	rc := reconfig{rules: rules, span: span, done: make(chan struct{})}
+// eventos retidos (so descarta o que sai da nova duracao). O estado das regras que continuam
+// (cooldowns do motor e estado interno, como as series do beacon) passa para as instancias
+// novas, exceto o das regras de fresh, cuja configuracao mudou e que recomecam: assim ajustar
+// um limiar faz o alerta voltar na hora, e mexer em outra regra nao o repete. Os eventos que
+// ja estavam na fila sao avaliados antes, com as regras antigas. ctx limita so a entrega do
+// pedido (motor parado ou travado): depois que o motor o aceita, a troca sempre termina
+// (esvaziar a fila e limitado), entao esperamos por ela. Devolver um erro de contexto nesse
+// ponto diria "nao aplicado" a quem ja teve o pedido aplicado.
+func (e *Engine) Reconfigure(ctx context.Context, rules []Rule, span time.Duration, fresh []string) error {
+	rc := reconfig{rules: rules, span: span, fresh: fresh, done: make(chan struct{})}
 	select {
 	case e.reconf <- rc:
 	case <-ctx.Done():
@@ -103,10 +108,10 @@ func (e *Engine) reconfigure(rc reconfig) {
 	for n := len(e.in); n > 0; n-- { // so esta goroutine le da fila: os n eventos estao la
 		e.process(<-e.in)
 	}
+	e.carryState(rc.rules, rc.fresh)
 	e.rules = rc.rules
 	e.window.SetSpan(rc.span)
 	e.windowLen.Store(int64(e.window.Len()))
-	e.cooldown = map[cooldownKey]time.Time{}
 	e.log.Info("motor reconfigurado", "regras", len(rc.rules), "janela", rc.span.String())
 	close(rc.done)
 }
@@ -151,6 +156,8 @@ func (e *Engine) Run(ctx context.Context) {
 			e.process(ev)
 		case rc := <-e.reconf:
 			e.reconfigure(rc)
+		case req := <-e.snap:
+			req.reply <- e.snapshot()
 		}
 	}
 }
@@ -216,12 +223,7 @@ func (e *Engine) evalRule(r Rule, ev *Event) {
 // purgeCooldowns descarta as supressoes vencidas e as de regras que nao existem mais; o prazo
 // vem do cooldown atual da regra, ja que o mapa guarda so o instante do alerta.
 func (e *Engine) purgeCooldowns() {
-	cooldowns := map[string]time.Duration{}
-	for _, r := range e.rules {
-		if g, ok := r.(Gated); ok {
-			cooldowns[r.Name()] = g.Cooldown()
-		}
-	}
+	cooldowns := e.gatedCooldowns()
 	now := e.window.Now()
 	for k, last := range e.cooldown {
 		d, known := cooldowns[k.rule]

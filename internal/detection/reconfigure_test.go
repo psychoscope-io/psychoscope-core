@@ -34,11 +34,11 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timeout esperando: %s", what)
 }
 
-func reconf(t *testing.T, e *Engine, rules []Rule, span time.Duration) {
+func reconf(t *testing.T, e *Engine, rules []Rule, span time.Duration, fresh ...string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := e.Reconfigure(ctx, rules, span); err != nil {
+	if err := e.Reconfigure(ctx, rules, span, fresh); err != nil {
 		t.Fatalf("Reconfigure: %v", err)
 	}
 }
@@ -51,21 +51,21 @@ func countRule(name string) Rule {
 	}}, time.Hour}
 }
 
-func TestReconfigureSwapsRulesKeepsWindowAndResetsCooldown(t *testing.T) {
-	// as duas instancias tem o MESMO nome: e o caso real (mesma regra, limiares novos), e o
-	// cooldown e indexado por (regra, chave); se ele nao fosse zerado, o 3o evento seria suprimido
+func TestReconfigureSwapsRulesKeepsWindowAndRestartsFreshRules(t *testing.T) {
+	// as duas instancias tem o MESMO nome: e o caso real (mesma regra, limiares novos). A regra
+	// ajustada vem em fresh e recomeca sem cooldown; o cooldown e indexado por (regra, chave)
 	e, pub, stop := startEngine(t, []Rule{countRule("r")})
 	defer stop()
 
 	submit(e, 0, "a") // dispara (n=1) e abre o cooldown de 1h
 	submit(e, 1, "a") // suprimido pelo cooldown, mas fica na fila e na janela
-	reconf(t, e, []Rule{countRule("r")}, time.Minute)
+	reconf(t, e, []Rule{countRule("r")}, time.Minute, "r")
 	// os eventos ja enfileirados foram avaliados antes da troca, com a regra antiga
 	if got := e.Stats().Processed; got != 2 {
 		t.Fatalf("a fila deve ser esvaziada com as regras antigas antes da troca: processados=%d", got)
 	}
 
-	submit(e, 2, "a") // regra nova, cooldown zerado: dispara de novo; a janela manteve os 2 eventos
+	submit(e, 2, "a") // regra nova e fresh: dispara de novo; a janela manteve os 2 eventos
 	eventually(t, "segundo alerta apos a troca", func() bool { return len(pub.list()) == 2 })
 	as := pub.list()
 	if as[0].Contexto["n"] != "1" {
@@ -100,7 +100,7 @@ func TestReconfigureWithoutRunningEngineTimesOut(t *testing.T) {
 	e := NewEngine(EngineConfig{}, nil, &recPub{}) // sem Run
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if err := e.Reconfigure(ctx, nil, time.Minute); !errors.Is(err, context.DeadlineExceeded) {
+	if err := e.Reconfigure(ctx, nil, time.Minute, nil); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("motor parado: esperado DeadlineExceeded, veio %v", err)
 	}
 }
@@ -143,7 +143,7 @@ func TestReconfigureAfterAcceptedDoesNotReportTheContextDeadline(t *testing.T) {
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	if err := e.Reconfigure(ctx, []Rule{countRule("r")}, 2*time.Minute); err != nil {
+	if err := e.Reconfigure(ctx, []Rule{countRule("r")}, 2*time.Minute, nil); err != nil {
 		t.Fatalf("o pedido foi aceito e aplicado: nao pode devolver erro: %v", err)
 	}
 	select {

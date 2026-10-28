@@ -40,9 +40,12 @@ type daemon struct {
 	sup       *supervisor.Supervisor
 	engine    *detection.Engine
 	rules     int
-	srv       *ipc.Server
-	ctl       *ctl.Server
-	metricsLn net.Listener // nulo com o endpoint de metricas desligado
+	// appliedRules e a configuracao das regras que o motor roda agora; liveSettings a compara
+	// com a nova para saber quais regras recomecam sem estado.
+	appliedRules rules.Config
+	srv          *ipc.Server
+	ctl          *ctl.Server
+	metricsLn    net.Listener // nulo com o endpoint de metricas desligado
 }
 
 // Run sobe todos os componentes e bloqueia ate ctx ser cancelado. O encerramento
@@ -135,6 +138,7 @@ func (d *daemon) buildEngine() error {
 		return err
 	}
 	d.rules = len(ruleSet)
+	d.appliedRules = d.cfg.Detection.Rules
 	d.engine = detection.NewEngine(detection.EngineConfig{
 		Window: d.cfg.Detection.Window, MaxEvents: d.cfg.Detection.MaxEvents, QueueSize: d.cfg.Detection.QueueSize,
 		Logger: d.log.With("componente", "deteccao"),
