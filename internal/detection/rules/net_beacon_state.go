@@ -34,8 +34,21 @@ type beaconCooldown struct {
 	AlertaNs int64  `json:"alerta_ns"`
 }
 
+// maxStateEntries limita quantas series (e quantos cooldowns) ExportState entrega, as mais
+// recentes: com o tamanho maximo de uma serie em JSON, o arquivo do motor continua abaixo do
+// limite de leitura do enginestate mesmo com max_keys alto.
+const maxStateEntries = 30_000
+
+// maxImportElements limita quantos elementos de cada lista ImportState examina antes de recusar o estado.
+const maxImportElements = 2 * maxStateEntries
+
+// maxContactsJSON e o maior texto JSON aceito para os contatos de uma serie (maxSeriesLen
+// numeros de ate 20 digitos com virgula); acima disso o elemento e descartado sem decodificar.
+const maxContactsJSON = maxSeriesLen*21 + 2
+
 // ExportState copia as series ainda uteis em now e so os cooldowns ainda ativos (o mapa pode
-// passar de max_keys, porque o despejo de series nao o poda).
+// passar de max_keys, porque o despejo de series nao o poda), no maximo maxStateEntries de cada.
+// Roda na goroutine do motor: nao ordena, a nao ser que passe do teto.
 func (r *Beacon) ExportState(now time.Time) any {
 	st := beaconState{MinIntervalNs: int64(r.cfg.MinInterval)}
 	stale := now.Add(-2 * r.cfg.MaxInterval)
@@ -54,33 +67,127 @@ func (r *Beacon) ExportState(now time.Time) any {
 			st.Cooldowns = append(st.Cooldowns, beaconCooldown{Chave: k, AlertaNs: last.UnixNano()})
 		}
 	}
+	if len(st.Series) > maxStateEntries {
+		sort.Slice(st.Series, func(i, j int) bool { return st.Series[i].VistoNs > st.Series[j].VistoNs })
+		st.Series = st.Series[:maxStateEntries]
+	}
+	if len(st.Cooldowns) > maxStateEntries {
+		sort.Slice(st.Cooldowns, func(i, j int) bool { return st.Cooldowns[i].AlertaNs > st.Cooldowns[j].AlertaNs })
+		st.Cooldowns = st.Cooldowns[:maxStateEntries]
+	}
 	return st
 }
 
-// ImportState restaura o estado exportado, validando cada entrada: o que for invalido e
-// descartado, as series so valem com o mesmo min_interval e o total e aparado para max_keys
-// (ficam as mais recentes). Devolve quantas series e cooldowns ficaram.
-func (r *Beacon) ImportState(raw []byte) (int, error) {
-	var st beaconState
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&st); err != nil {
-		return 0, fmt.Errorf("estado do beacon ilegivel: %w", err)
-	}
-	kept := 0
-	if st.MinIntervalNs == int64(r.cfg.MinInterval) {
-		kept += r.importSeries(st.Series)
-	}
-	return kept + r.importCooldowns(st.Cooldowns), nil
+// importedSeries e uma serie lida do arquivo; os contatos so sao decodificados depois de o
+// tamanho do texto passar no limite.
+type importedSeries struct {
+	Chave    string          `json:"chave"`
+	VistoNs  int64           `json:"visto_ns"`
+	Contatos json.RawMessage `json:"contatos_ns"`
 }
 
-func (r *Beacon) importSeries(in []beaconSeries) int {
-	valid := in[:0:0]
-	for _, s := range in {
-		if validBeaconKey(s.Chave) && validContacts(s.Contatos, s.VistoNs) {
-			valid = append(valid, s)
+// ImportState restaura o estado exportado. O JSON e lido em fluxo, um elemento por vez, e cada
+// um e validado antes de entrar em memoria: chave, tamanho dos contatos e ordem. O que for
+// invalido e descartado; as series so valem com o mesmo min_interval (que precisa ser o primeiro
+// campo, como ExportState o escreve) e o total e aparado para max_keys (ficam as mais recentes).
+// Devolve quantas series e cooldowns ficaram; chave desconhecida ou JSON mal formado e erro.
+func (r *Beacon) ImportState(raw []byte) (int, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := expectDelim(dec, '{'); err != nil {
+		return 0, fmt.Errorf("estado do beacon ilegivel: %w", err)
+	}
+	var series []beaconSeries
+	var cooldowns []beaconCooldown
+	sameMin, sawMin := false, false
+	for dec.More() {
+		tok, err := dec.Token()
+		name, _ := tok.(string)
+		if err != nil || name == "" {
+			return 0, fmt.Errorf("estado do beacon ilegivel: chave invalida (%v)", err)
+		}
+		switch name {
+		case "min_interval_ns":
+			var ns int64
+			if err := dec.Decode(&ns); err != nil {
+				return 0, fmt.Errorf("estado do beacon ilegivel: min_interval_ns: %w", err)
+			}
+			sameMin, sawMin = ns == int64(r.cfg.MinInterval), true
+		case "series":
+			err = streamArray(dec, func() error {
+				var s importedSeries
+				if err := dec.Decode(&s); err != nil {
+					return err
+				}
+				if sawMin && sameMin && validBeaconKey(s.Chave) && len(s.Contatos) <= maxContactsJSON {
+					var contacts []int64
+					if json.Unmarshal(s.Contatos, &contacts) == nil && validContacts(contacts, s.VistoNs) {
+						series = append(series, beaconSeries{Chave: s.Chave, VistoNs: s.VistoNs, Contatos: contacts})
+					}
+				}
+				return nil
+			})
+		case "cooldowns":
+			err = streamArray(dec, func() error {
+				var c beaconCooldown
+				if err := dec.Decode(&c); err != nil {
+					return err
+				}
+				if validBeaconKey(c.Chave) && c.AlertaNs > 0 {
+					cooldowns = append(cooldowns, c)
+				}
+				return nil
+			})
+		default:
+			err = fmt.Errorf("chave desconhecida %q", name)
+		}
+		if err != nil {
+			return 0, fmt.Errorf("estado do beacon ilegivel: %w", err)
 		}
 	}
+	if err := expectDelim(dec, '}'); err != nil {
+		return 0, fmt.Errorf("estado do beacon ilegivel: %w", err)
+	}
+	return r.installSeries(series) + r.installCooldowns(cooldowns), nil
+}
+
+func expectDelim(dec *json.Decoder, want json.Delim) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if d, ok := tok.(json.Delim); !ok || d != want {
+		return fmt.Errorf("esperava %q, veio %v", want, tok)
+	}
+	return nil
+}
+
+// streamArray percorre um array JSON chamando elem para cada elemento (o decoder esta no inicio
+// dele). null conta como lista vazia; passar de maxImportElements e erro.
+func streamArray(dec *json.Decoder, elem func() error) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		return nil
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '[' {
+		return fmt.Errorf("esperava uma lista, veio %v", tok)
+	}
+	for n := 0; dec.More(); n++ {
+		if n >= maxImportElements {
+			return fmt.Errorf("lista grande demais (mais de %d elementos)", maxImportElements)
+		}
+		if err := elem(); err != nil {
+			return err
+		}
+	}
+	_, err = dec.Token() // ']'
+	return err
+}
+
+func (r *Beacon) installSeries(valid []beaconSeries) int {
 	sort.Slice(valid, func(i, j int) bool { return valid[i].VistoNs > valid[j].VistoNs })
 	if len(valid) > r.cfg.MaxKeys {
 		valid = valid[:r.cfg.MaxKeys]
@@ -95,13 +202,7 @@ func (r *Beacon) importSeries(in []beaconSeries) int {
 	return len(valid)
 }
 
-func (r *Beacon) importCooldowns(in []beaconCooldown) int {
-	valid := in[:0:0]
-	for _, c := range in {
-		if validBeaconKey(c.Chave) && c.AlertaNs > 0 {
-			valid = append(valid, c)
-		}
-	}
+func (r *Beacon) installCooldowns(valid []beaconCooldown) int {
 	sort.Slice(valid, func(i, j int) bool { return valid[i].AlertaNs > valid[j].AlertaNs })
 	if len(valid) > r.cfg.MaxKeys {
 		valid = valid[:r.cfg.MaxKeys]

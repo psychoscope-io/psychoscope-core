@@ -247,6 +247,58 @@ func TestStateKeyChangesOnlyWithStateAffectingFields(t *testing.T) {
 	}
 }
 
+func TestBeaconExportKeepsOnlyTheNewestEntriesOverTheCap(t *testing.T) {
+	cfg := Default().Beacon
+	cfg.MaxKeys = maxStateEntries + 500
+	b := NewBeacon(cfg)
+	now := tm(1000)
+	for i := 0; i < maxStateEntries+500; i++ {
+		key := fmt.Sprintf("tcp|10.0.%d.%d|203.0.113.7:443", i>>8, i&255)
+		b.series[key] = &series{times: []time.Time{tm(float64(i))}, seen: tm(float64(i))}
+		b.cooldown[key] = tm(float64(i))
+	}
+	b.cfg.Cooldown = time.Hour
+	st := b.ExportState(now).(beaconState)
+	if len(st.Series) != maxStateEntries || len(st.Cooldowns) != maxStateEntries {
+		t.Fatalf("o export respeita o teto: %d series, %d cooldowns", len(st.Series), len(st.Cooldowns))
+	}
+	oldest := int64(1 << 62)
+	for _, s := range st.Series {
+		oldest = min(oldest, s.VistoNs)
+	}
+	if want := tm(500).UnixNano(); oldest != want { // ficam as 30 mil mais recentes: de 500 a 30499
+		t.Fatalf("a serie mais antiga exportada deve ser a de 500 s: %d, esperado %d", oldest, want)
+	}
+}
+
+func TestBeaconImportStreamingLimits(t *testing.T) {
+	cfg := Default().Beacon
+	min := int64(cfg.MinInterval)
+	huge := strings.Repeat("1,", maxContactsJSON) // texto dos contatos acima do limite
+	cases := []struct {
+		name, raw string
+		kept      int
+		wantErr   bool
+	}{
+		{"contatos longos demais", fmt.Sprintf(`{"min_interval_ns":%d,"series":[{"chave":"tcp|a|b","visto_ns":%d,"contatos_ns":[%s1]}]}`, min, tm(9).UnixNano(), huge), 0, false},
+		{"series antes do min_interval nao valem", fmt.Sprintf(`{"series":[{"chave":"tcp|a|b","visto_ns":%d,"contatos_ns":[%d]}],"min_interval_ns":%d}`, tm(9).UnixNano(), tm(9).UnixNano(), min), 0, false},
+		{"listas nulas", fmt.Sprintf(`{"min_interval_ns":%d,"series":null,"cooldowns":null}`, min), 0, false},
+		{"lista que nao e lista", fmt.Sprintf(`{"min_interval_ns":%d,"series":{}}`, min), 0, true},
+		{"nao e objeto", `[1,2]`, 0, true},
+		{"elemento com campo desconhecido", fmt.Sprintf(`{"min_interval_ns":%d,"cooldowns":[{"chave":"tcp|a|b","alerta_ns":5,"x":1}]}`, min), 0, true},
+		{"lista com elementos demais", fmt.Sprintf(`{"min_interval_ns":%d,"cooldowns":[%s{}]}`, min, strings.Repeat("{},", maxImportElements)), 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b := NewBeacon(cfg)
+			n, err := b.ImportState([]byte(c.raw))
+			if (err != nil) != c.wantErr || n != c.kept || len(b.series)+len(b.cooldown) != c.kept {
+				t.Fatalf("kept=%d err=%v", n, err)
+			}
+		})
+	}
+}
+
 // BenchmarkBeaconExportState mede o que ExportState ocupa a goroutine do motor com o teto
 // padrao de series (50 mil); a codificacao em JSON fica fora dela.
 func BenchmarkBeaconExportState(b *testing.B) {
