@@ -3,6 +3,7 @@ package rules
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -102,9 +103,12 @@ func (r *Beacon) ImportState(raw []byte) (int, error) {
 	sameMin, sawMin := false, false
 	for dec.More() {
 		tok, err := dec.Token()
-		name, _ := tok.(string)
-		if err != nil || name == "" {
-			return 0, fmt.Errorf("estado do beacon ilegivel: chave invalida (%v)", err)
+		if err != nil {
+			return 0, fmt.Errorf("estado do beacon ilegivel: %w", err)
+		}
+		name, isName := tok.(string)
+		if !isName {
+			return 0, errors.New("estado do beacon ilegivel: chave de objeto invalida")
 		}
 		switch name {
 		case "min_interval_ns":

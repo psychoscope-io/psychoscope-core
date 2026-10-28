@@ -21,7 +21,7 @@ Sobre os falsos positivos: cada seção separa o que **já foi visto em máquina
 | Desligar uma regra | `psychoscope-cli config set detection.disabled=net.dns.rate` (lista de nomes de regra) |
 | Ver o que vale hoje | `psychoscope-cli config -v detection.<seção>` |
 
-Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Detalhes e limites em [Configuração em tempo de execução](../README.md#configuração-em-tempo-de-execução). Ao ajustar uma regra, só os cooldowns e o estado interno **dela** recomeçam (para o alerta voltar a aparecer na hora); os das outras regras continuam.
+Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Detalhes e limites em [Configuração em tempo de execução](../README.md#configuração-em-tempo-de-execução). Ao mudar um limiar ou uma janela de uma regra, só os cooldowns e o estado interno **dela** recomeçam (para o alerta voltar a aparecer na hora); os das outras regras continuam. Mudar só o `cooldown`, um teto ou uma lista de exceção (o que a tecla `i` faz) não zera nada.
 
 ---
 
@@ -208,4 +208,4 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Como ajustar.** É a regra com mais opções: `ignore_destinations` (IPs ou CIDRs de destino TCP), `ignore_domains` (nome exato ou sufixo), `ignore_ports`. A tecla `i` do alerta sugere o destino ou o domínio. Para tornar a regra mais exigente: subir `min_samples` ou baixar `max_cv`.
 
-**Estado entre reinícios.** As séries e os cooldowns do beacon são gravados em `engine-state.json` (veja [Estado do motor](../README.md#estado-do-motor-entre-reinícios)) e restaurados na partida, então reiniciar o Core não faz um beacon já visto alertar de novo nem o faz recomeçar a contagem dos 8 contatos. As séries só são restauradas se o `min_interval` não mudou. Uma queda abrupta perde no máximo os últimos 60 s de estado.
+**Estado entre reinícios.** As séries e os cooldowns do beacon são gravados em `engine-state.json` (veja [Estado do motor](../README.md#estado-do-motor-entre-reinícios)) e restaurados na partida, então reiniciar o Core não faz um beacon já visto alertar de novo nem o faz recomeçar a contagem dos 8 contatos. As séries só são restauradas se o `min_interval` não mudou, e a regra recomeça vazia se um limiar dela foi editado entre duas partidas. O estado guarda no máximo as 30 mil séries mais recentes. Uma queda abrupta perde no máximo os últimos 60 s de estado.

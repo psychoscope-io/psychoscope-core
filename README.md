@@ -89,8 +89,9 @@ dele. Ordem de precedência: padrão do Core < arquivo do administrador < ajuste
   código), sockets, `socket_mode`, `allowed_uids`, `metrics.listen`, `storage.path` e `detection.queue_size` e `max_events` (exigem reinício).
   O arquivo de ajustes é lido com chaves estritas: qualquer outra chave impede a partida, com uma mensagem que cita o arquivo.
 - **Aplicação ao vivo.** As regras e a janela do motor são trocadas sem perder os eventos retidos. Os cooldowns e o estado interno (como as séries do
-  beacon) **das regras que você não ajustou continuam**; só as regras cuja configuração mudou recomeçam, de modo que ao alterar um limiar o alerta
-  volta a aparecer na hora, e mexer numa regra não repete os alertas das outras. Os limites de retenção valem na hora (poda imediata).
+  beacon) **continuam**, exceto os das regras em que você mudou um **limiar ou uma janela**: essas recomeçam, de modo que ao alterar um limiar o alerta
+  volta a aparecer na hora. Mudar só o `cooldown`, um teto (`max_keys`, `max_scan`) ou uma lista de exceção (`ignore_*`, `allowed_*`, `ports`,
+  como ao ignorar um destino com `i`) **não** zera nada, e mexer numa regra nunca repete os alertas das outras. Os limites de retenção valem na hora (poda imediata).
 - **Listas são substituídas, não somadas.** Um campo de lista (como `ignore_destinations`) com ajuste **substitui** a lista do arquivo do
   administrador, não se soma a ela. Ao ajustar (`i`, `:set`, `config set`), a lista que vale naquele momento, com os itens do arquivo, é copiada
   para o ajuste; depois disso, mudar essa lista no arquivo do administrador não tem efeito até você restaurar o campo (`d`, `:set campo&`,
@@ -128,11 +129,18 @@ O Core grava o estado do motor (os cooldowns de todas as regras e as séries e c
 
 - **Chaves** (arquivo de configuração, não editáveis pelo canal de controle): `engine_state_path` (padrão `<estado>/engine-state.json`) e
   `engine_state_interval` (padrão `60s`; `0s` grava só no encerramento).
-- **É só uma otimização.** Arquivo ilegível, de versão desconhecida, com mais de 6 h ou salvo "no futuro" (o relógio voltou atrás: restaurar deixaria o
-  beacon cego) é descartado com um aviso no log, e o Core sobe com o motor vazio; o próximo salvamento o substitui. Para zerar o estado de propósito,
-  apague o arquivo e reinicie.
+- **É só uma otimização.** Arquivo ilegível, de versão desconhecida, maior que 32 MiB ou salvo "no futuro" (o relógio voltou atrás por mais de 1 minuto:
+  restaurar deixaria o beacon cego pelo tempo do salto) é descartado com um aviso no log, e o Core sobe com o motor vazio; o próximo salvamento o
+  substitui. Não há idade máxima: o estado expira sozinho, no tempo dos eventos. Para zerar o estado de propósito, apague o arquivo e reinicie.
+- **Só grava quando algo mudou.** O snapshot periódico é pulado se o motor não processou eventos desde a última gravação, e uma execução sem nenhum
+  evento deixa o arquivo como estava. O beacon exporta no máximo as 30 mil séries e os 30 mil cooldowns mais recentes; um estado que mesmo assim passe
+  de 32 MiB não é gravado (a falha aparece em `psychoscope_engine_state_save_errors_total`).
 - **Queda abrupta** (`kill -9`, falta de energia) perde no máximo os últimos 60 s: o pior caso é um alerta repetido, nunca um alerta perdido.
-- **Mudança de configuração:** o estado das séries do beacon só vale com o mesmo `min_interval`; se ele mudou, as séries são descartadas e só os cooldowns ficam.
+- **Mudança de configuração entre duas partidas:** cada regra grava uma chave com os campos que dão sentido ao estado (limiares e janelas; `cooldown`,
+  tetos e listas de exceção ficam de fora). Se você editou um limiar no arquivo de configuração, a regra recomeça vazia na partida, como num ajuste ao vivo,
+  para o efeito aparecer logo. O estado das séries do beacon também exige o mesmo `min_interval`.
+- **Replay de pcap:** o tempo dos eventos manda. Reenviar um pcap antigo depois de um reinício só é suprimido enquanto o cooldown ainda valia no instante
+  final da execução anterior; regras de cooldown curto podem alertar de novo.
 - **Privacidade:** o arquivo contém IPs e domínios do tráfego observado, como o `alerts.db`; as permissões são as mesmas. Inclua-o (ou exclua-o) do backup conforme sua política.
 - **Métricas:** `psychoscope_engine_state_saves_total` e `psychoscope_engine_state_save_errors_total`.
 
