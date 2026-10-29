@@ -140,7 +140,7 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 **O que investigar.** O domínio base é conhecido? Os subdomínios parecem dados em base32/base64? Qual processo consulta?
 
 **Falsos positivos.**
-- *Observado em máquina real:* 1 alerta numa semana, para um nome de balanceador de carga da nuvem (`...elb.amazonaws.com`) com rótulos longos. Trate com `allowed_bases` (a tecla `i` sugere o `dominio_base`).
+- *Observado em máquina real:* 1 alerta numa semana, para um nome de balanceador de carga da nuvem (`...elb.amazonaws.com`) com rótulos longos. Trate com `allowed_bases` (a tecla `i` sugere o `dominio_base`). O caso `dns-tunnel-balanceador` do catálogo prova o alerta e o ajuste, e o `dns-tunnel-exfil` prova que dados codificados em subdomínios de outro domínio continuam alertando.
 - *Esperados (ainda não observados):* CDNs, antivírus e telemetria que usam subdomínios longos e aleatórios por design, e verificação de reputação por DNS (listas de bloqueio, DNSBL).
 
 **Como ajustar.** `allowed_bases` isenta um domínio base, e a tecla `i` do alerta já sugere o `dominio_base`. Também dá para subir `min_label_len`, `min_entropy` ou `min_queries`.
@@ -164,7 +164,7 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 **O que investigar.** Muitas consultas ao mesmo domínio (laço de aplicação) ou a muitos domínios distintos (varredura)?
 
 **Falsos positivos.**
-- *Observado em máquina real:* 3 alertas numa semana, de 200 consultas a ~75 domínios distintos em 10 s, compatível com um navegador carregando uma página pesada. Poucos o bastante para manter o padrão; suba `min_queries` se incomodar.
+- *Observado em máquina real:* 3 alertas numa semana, de 200 consultas a ~75 domínios distintos em 10 s, compatível com um navegador carregando uma página pesada. Poucos o bastante para manter o padrão; suba `min_queries` se incomodar. O caso `dns-rate-navegador` do catálogo prova o alerta e o ajuste (`min_queries=400`), e o `dns-rate-inundacao` prova que um volume de verdade (1 000 consultas em 10 s) continua alertando.
 - *Esperados (ainda não observados):* máquina que funciona como resolvedor local ou encaminhador para outras (o "cliente" é a rede toda), atualização de pacotes e pré-busca de links.
 
 **Como ajustar.** Sem lista de exceções. Suba `min_queries` ou a janela, ou desligue a regra se a máquina for um resolvedor.
