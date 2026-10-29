@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -317,3 +318,34 @@ func TestSubmitWaitBlocksOnFullQueueInsteadOfDropping(t *testing.T) {
 type nopPublisher struct{}
 
 func (nopPublisher) Publish(*psychoscopev1.Alerta) {}
+
+// purgeCounter conta quantas vezes o motor consulta o cooldown da regra para podar o mapa: com
+// chaves sempre distintas nenhuma supressao esta ativa, entao Cooldown() so e chamado pela poda.
+type purgeCounter struct {
+	gatedRule
+	n *atomic.Int64
+}
+
+func (p purgeCounter) Cooldown() time.Duration { p.n.Add(1); return p.cooldown }
+
+// A poda do mapa de cooldowns custa O(tamanho do mapa): rodar a cada evento depois de passar de
+// 10 mil chaves tornava o motor quadratico e, numa tempestade de alertas, ele descartava eventos.
+// Agora so poda quando o mapa dobra desde a ultima poda.
+func TestEnginePurgeCooldownsIsAmortized(t *testing.T) {
+	var purges atomic.Int64
+	rule := purgeCounter{gatedRule{fnRule{"r.chaves", fire("")}, time.Hour}, &purges}
+	const keys = 30_000
+	e := NewEngine(EngineConfig{Window: time.Minute, QueueSize: keys + 1}, []Rule{rule}, &recPub{})
+	for i := 0; i < keys; i++ {
+		submit(e, float64(i)*0.001, fmt.Sprintf("10.%d.%d.%d", i/65536, i/256%256, i%256))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	e.Run(ctx)
+	if got := e.Stats().Alerts; got != keys {
+		t.Fatalf("cada chave distinta devia alertar uma vez: %d de %d", got, keys)
+	}
+	if n := purges.Load(); n > 6 {
+		t.Fatalf("a poda rodou %d vezes para %d chaves (devia ser logaritmica, nao uma por evento)", n, keys)
+	}
+}

@@ -38,6 +38,10 @@ type Stats struct {
 
 type cooldownKey struct{ rule, key string }
 
+// cooldownPurgeMin e o tamanho do mapa de cooldowns a partir do qual vale podar as supressoes
+// vencidas.
+const cooldownPurgeMin = 10_000
+
 // Engine consome eventos, mantem a janela e avalia as regras em uma unica goroutine.
 type Engine struct {
 	rules  []Rule
@@ -47,6 +51,7 @@ type Engine struct {
 	in     chan *Event
 
 	cooldown map[cooldownKey]time.Time // instante do ultimo alerta, no tempo dos eventos
+	purgeAt  int                       // tamanho do mapa a partir do qual poda de novo (0 = cooldownPurgeMin)
 	reconf   chan reconfig             // pedidos de Reconfigure, tratados dentro de Run
 	snap     chan snapshotRequest      // pedidos de Snapshot, tratados dentro de Run
 
@@ -183,8 +188,9 @@ func (e *Engine) process(ev *Event) {
 	for _, r := range e.rules {
 		e.evalRule(r, ev)
 	}
-	if len(e.cooldown) > 10_000 {
+	if len(e.cooldown) > max(e.purgeAt, cooldownPurgeMin) {
 		e.purgeCooldowns()
+		e.purgeAt = 2 * len(e.cooldown) // so poda de novo quando o mapa dobrar: custo amortizado O(1) por evento
 	}
 }
 
