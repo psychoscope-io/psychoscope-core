@@ -229,6 +229,10 @@ mesma ideia: `/var/lib/psychoscope` (ex.: `StateDirectory=`), senão `$XDG_STATE
   reinício (veja [Estado do motor](#estado-do-motor-entre-reinícios)).
 - A versão TLS informada é a maior **oferecida** no ClientHello, não a negociada.
 - O endpoint de métricas não tem autenticação nem TLS.
+- Sob tráfego em massa o Core descarta em vez de bloquear, e conta: `psychoscope_engine_events_dropped_total` (a fila de entrada do motor,
+  `detection.queue_size`, enche e eventos se perdem; uma fila maior só absorve rajadas) e `psychoscope_store_alerts_dropped_total` (a fila do
+  gravador, de 16 384 alertas, enche; o Core registra um aviso no log). No laptop de teste (um só equipamento) quase não houve perda até ~100 mil eventos/s sustentados; os números
+  e o que não foi medido estão em [`DESEMPENHO.md`](https://github.com/psychoscope-io/mod-net-sensor/blob/main/docs/DESEMPENHO.md) do sensor.
 
 ## Notas de desenvolvimento
 
@@ -236,7 +240,8 @@ mesma ideia: `/var/lib/psychoscope` (ex.: `StateDirectory=`), senão `$XDG_STATE
 - `testdata/framing_vectors.json` é cópia de `psychoscope-proto/testdata/`.
 - `internal/testmod` é um módulo falso para testes (o binário de teste se re-executa como filho).
 - Testes do `install.sh` e do `get.sh` (instala, atualiza e desinstala; sem rede nem root): `./deploy/test_install.sh` e `./deploy/test_get.sh`. Testes entre repositórios (daemon + sensor reais, persistência, TUI em pty):
-  `mod-net-sensor/scripts/e2e.sh` e `scripts/live_smoke.sh`.
+  `mod-net-sensor/scripts/e2e.sh` e `scripts/live_smoke.sh`. Medição de carga: `go test -bench` em `internal/ipc`, `internal/detection/rules` e
+  `internal/store` (leitura IPC, motor, beacon e gravação) e, no sensor, `scripts/bench_live.sh` e `scripts/bench_replay.sh`.
 - Releases: `make tag` (`scripts/tag.sh`) cria a tag anotada da próxima versão, só localmente; ao publicar a tag `vX.Y.Z`, `.github/workflows/release.yml` gera tarballs (amd64/arm64), o `get.sh`, `SHA256SUMS` e atestado de proveniência.
 
 ## Licença
