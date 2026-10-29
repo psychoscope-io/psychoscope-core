@@ -22,6 +22,11 @@ type PersisterConfig struct {
 	Logger     *slog.Logger
 }
 
+// subscriptionBuffer e a fila da assinatura do gravador, o que absorve uma rajada de alertas (uma
+// tempestade gera dezenas de milhares em ~1 s) enquanto o SQLite grava ~50 mil alertas/s. Cheia
+// so no pior caso: ~1 KiB por alerta retido, ate ~16 MiB.
+const subscriptionBuffer = 16_384
+
 // Persister assina o Bus e grava os alertas em lote, fora do caminho quente do motor:
 // se o disco atrasar, o Bus descarta para esta assinatura (contado) em vez de bloquear.
 type Persister struct {
@@ -73,7 +78,7 @@ func (p *Persister) Dropped() uint64 { return p.dropped.Load() }
 
 // Run grava ate ctx ser cancelado; ao cancelar, faz uma ultima gravacao do que restou.
 func (p *Persister) Run(ctx context.Context) {
-	sub := p.bus.Subscribe(1024)
+	sub := p.bus.Subscribe(subscriptionBuffer)
 	defer sub.Close()
 
 	flushTick := time.NewTicker(p.cfg.FlushEvery)
@@ -94,7 +99,7 @@ func (p *Persister) Run(ctx context.Context) {
 				batch = p.flush(batch)
 			}
 		case <-flushTick.C:
-			p.dropped.Store(sub.Dropped())
+			p.noteDropped(sub.Dropped())
 			batch = p.flush(batch)
 		case <-pruneTick.C:
 			p.prune()
@@ -104,6 +109,14 @@ func (p *Persister) Run(ctx context.Context) {
 			p.drain(sub, batch)
 			return
 		}
+	}
+}
+
+// noteDropped guarda o total de alertas que a assinatura perdeu e avisa no log quando cresceu, no
+// maximo uma vez por FlushEvery: sem o aviso a perda so aparece na metrica.
+func (p *Persister) noteDropped(total uint64) {
+	if prev := p.dropped.Swap(total); total > prev {
+		p.log.Warn("alertas descartados: o gravador nao acompanha a taxa de alertas", "novos", total-prev, "total", total)
 	}
 }
 
@@ -152,7 +165,7 @@ func (p *Persister) drain(sub *alerts.Subscription, batch []*psychoscopev1.Alert
 			}
 			batch = append(batch, a)
 		default:
-			p.dropped.Store(sub.Dropped())
+			p.noteDropped(sub.Dropped())
 			p.flush(batch)
 			return
 		}
