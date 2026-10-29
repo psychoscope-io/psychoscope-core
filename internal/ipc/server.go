@@ -1,6 +1,7 @@
 package ipc
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -207,6 +208,9 @@ func (s *Server) handle(conn *net.UnixConn) {
 	s.log.Info("modulo desconectado", "modulo", sess.ID, "err", rerr)
 }
 
+// readBufferSize e o buffer de leitura de cada sessao (frames maiores passam em mais de uma leitura).
+const readBufferSize = 64 << 10
+
 type protocolError struct{ msg string }
 
 func (e protocolError) Error() string { return "violacao de protocolo: " + e.msg }
@@ -214,9 +218,12 @@ func (e protocolError) Error() string { return "violacao de protocolo: " + e.msg
 func (s *Server) readLoop(sess *Session) error {
 	window := heartbeatMisses * s.cfg.StatusInterval
 	warnedCounters := false
+	// o buffer junta o prefixo e o corpo de cada frame (e varios frames pequenos) numa leitura so do
+	// socket; o prazo continua valendo, pois vale para cada leitura que o buffer faz na conexao
+	br := bufio.NewReaderSize(sess.conn, readBufferSize)
 	for {
 		_ = sess.conn.SetReadDeadline(time.Now().Add(window))
-		m, err := ReadMessage(sess.conn, 0)
+		m, err := ReadMessage(br, 0)
 		if err != nil {
 			var ne net.Error
 			switch {
