@@ -14,12 +14,16 @@ const benchEvents = 100_000
 // benchTraffic gera n eventos com clientes distintos, a 10 us um do outro no tempo dos eventos (a
 // janela guarda todos), sem nenhum que alerte: o custo medido e o de avaliar as regras.
 //   - "dns": so consultas DNS de 1000 clientes a 64 nomes;
+//   - "scan": como a tempestade de varredura do bench_replay do sensor, n/25 origens distintas que
+//     sondam 25 portas de um destino cada uma (so SYN, uma origem por vez);
 //   - "misto": 50% DNS, 40% handshakes TCP (SYN e SYN-ACK) e 10% ClientHello, de 5000 clientes.
 func benchTraffic(kind string, n int) []*psychoscopev1.EventoFluxoRede {
 	evs := make([]*psychoscopev1.EventoFluxoRede, 0, n)
 	for i := 0; i < n; i++ {
 		sec := float64(i) * 10e-6
 		switch {
+		case kind == "scan":
+			evs = append(evs, syn(sec, fmt.Sprintf("10.%d.%d.%d", 100+i/25/62500, i/25/250%250, i/25%250+1), "198.51.100.7", uint32(i%25+1)))
 		case kind == "dns" || i%10 < 5:
 			evs = append(evs, dnsQuery(sec, fmt.Sprintf("10.1.%d.%d", i%1000/250, i%250+1), fmt.Sprintf("h%d.bench.example.com", i%64)))
 		case i%10 < 9:
@@ -44,7 +48,7 @@ func (p *benchPub) Publish(*psychoscopev1.Alerta) { p.n++ }
 // desserializacao: eventos ja na fila, como o run() dos testes. O resultado (ev/s) e o teto do
 // motor, para comparar com a vazao ponta a ponta do bench_live do sensor.
 func BenchmarkEngine(b *testing.B) {
-	for _, kind := range []string{"dns", "misto"} {
+	for _, kind := range []string{"dns", "misto", "scan"} {
 		b.Run(kind, func(b *testing.B) {
 			evs := benchTraffic(kind, benchEvents)
 			var alerts int

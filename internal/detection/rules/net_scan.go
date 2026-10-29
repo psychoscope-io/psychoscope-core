@@ -140,6 +140,11 @@ func (r *ScanSYN) busiestUnanswered(ev *detection.Event, w *detection.Window, p 
 }
 
 func (r *ScanSYN) Eval(ev *detection.Event, w *detection.Window) *psychoscopev1.Alerta {
+	// corte barato: sem pelo menos tantos eventos da origem quanto o menor limiar, nenhuma das duas
+	// varreduras pode ter ocorrido, e collect aloca tres mapas
+	if len(w.FromSrc(ev.Net.IpOrigem)) < min(r.cfg.VerticalPorts, r.cfg.HorizontalHosts) {
+		return nil
+	}
 	p := r.collect(ev, w)
 	if dst, n := p.busiestDst(); n >= r.cfg.VerticalPorts {
 		return r.verticalAlert(ev, dst, p.portsByDst[dst])
