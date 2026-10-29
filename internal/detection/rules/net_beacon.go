@@ -5,7 +5,6 @@ import (
 	"math"
 	"net"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -214,16 +213,27 @@ func (r *Beacon) evict() {
 	if len(r.series) < r.cfg.MaxKeys {
 		return
 	}
-	type kv struct {
-		k    string
-		seen time.Time
+	// ordena so os instantes (inteiros): bem mais barato que ordenar as chaves junto
+	seen := make([]int64, 0, len(r.series))
+	for _, s := range r.series {
+		seen = append(seen, s.seen.UnixNano())
 	}
-	all := make([]kv, 0, len(r.series))
-	for k, s := range r.series {
-		all = append(all, kv{k, s.seen})
+	slices.Sort(seen)
+	n := max(1, len(seen)/10)
+	cutoff := seen[n-1]
+	for k, s := range r.series { // primeiro as estritamente mais antigas que o corte
+		if s.seen.UnixNano() < cutoff {
+			delete(r.series, k)
+			n--
+		}
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].seen.Before(all[j].seen) })
-	for _, e := range all[:max(1, len(all)/10)] {
-		delete(r.series, e.k)
+	for k, s := range r.series { // depois os empates no corte, ate completar n
+		if n <= 0 {
+			break
+		}
+		if s.seen.UnixNano() == cutoff {
+			delete(r.series, k)
+			n--
+		}
 	}
 }

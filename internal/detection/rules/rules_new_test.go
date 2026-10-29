@@ -562,3 +562,61 @@ func durNear(t *testing.T, s string, want, tol time.Duration) bool {
 	d, err := time.ParseDuration(s)
 	return err == nil && d > want-tol && d < want+tol
 }
+
+func TestBeaconEvictRemovesOldestTenPercent(t *testing.T) {
+	cfg := Default().Beacon
+	cfg.MaxKeys = 100
+	b := NewBeacon(cfg)
+	base := time.Unix(1_700_000_000, 0)
+	for i := 0; i < cfg.MaxKeys; i++ { // todas recentes: nada e "velho" demais, so o corte dos 10%
+		b.series[fmt.Sprintf("k%03d", i)] = &series{seen: base.Add(time.Duration(i) * time.Second)}
+	}
+	b.evict()
+	if len(b.series) != 90 {
+		t.Fatalf("restaram %d series, queria 90", len(b.series))
+	}
+	for i := 0; i < 100; i++ {
+		_, ok := b.series[fmt.Sprintf("k%03d", i)]
+		if want := i >= 10; ok != want {
+			t.Fatalf("k%03d presente=%v, queria %v (despeja as 10 mais antigas)", i, ok, want)
+		}
+	}
+}
+
+func TestBeaconEvictTiesDoNotWipeEverything(t *testing.T) {
+	cfg := Default().Beacon
+	cfg.MaxKeys = 100
+	b := NewBeacon(cfg)
+	same := time.Unix(1_700_000_000, 0)
+	for i := 0; i < cfg.MaxKeys; i++ { // todas no mesmo instante
+		b.series[fmt.Sprintf("k%03d", i)] = &series{seen: same}
+	}
+	b.evict()
+	if len(b.series) != 90 {
+		t.Fatalf("restaram %d series, queria 90 (empate nao pode despejar alem de 10%%)", len(b.series))
+	}
+}
+
+func TestBeaconEvictOlderSeriesNeverSpareTiedOnes(t *testing.T) {
+	cfg := Default().Beacon
+	cfg.MaxKeys = 100
+	base := time.Unix(1_700_000_000, 0)
+	for round := 0; round < 50; round++ { // a ordem do mapa e aleatoria: repete
+		b := NewBeacon(cfg)
+		for i := 0; i < 8; i++ { // 8 mais antigas, depois 92 empatadas no corte
+			b.series[fmt.Sprintf("old%d", i)] = &series{seen: base.Add(time.Duration(i) * time.Second)}
+		}
+		for i := 0; i < 92; i++ {
+			b.series[fmt.Sprintf("tie%02d", i)] = &series{seen: base.Add(time.Hour)}
+		}
+		b.evict()
+		for i := 0; i < 8; i++ {
+			if _, ok := b.series[fmt.Sprintf("old%d", i)]; ok {
+				t.Fatalf("rodada %d: old%d sobreviveu enquanto empatadas foram despejadas", round, i)
+			}
+		}
+		if len(b.series) != 90 {
+			t.Fatalf("restaram %d series, queria 90", len(b.series))
+		}
+	}
+}
