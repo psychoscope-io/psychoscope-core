@@ -1,49 +1,23 @@
 package rules
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/detection"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/ruletest"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var t0 = time.Unix(1_700_000_000, 0).UTC()
-
-type pub struct {
-	mu sync.Mutex
-	as []*psychoscopev1.Alerta
-}
-
-func (p *pub) Publish(a *psychoscopev1.Alerta) { p.mu.Lock(); p.as = append(p.as, a); p.mu.Unlock() }
-
-func at(sec float64) *timestamppb.Timestamp {
-	return timestamppb.New(t0.Add(time.Duration(sec * float64(time.Second))))
-}
-
-func syn(sec float64, src, dst string, port uint32) *psychoscopev1.EventoFluxoRede {
-	return &psychoscopev1.EventoFluxoRede{IpOrigem: src, IpDestino: dst, PortaOrigem: 40000, PortaDestino: port,
-		Protocolo: psychoscopev1.ProtocoloTransporte_PROTO_TCP, FlagsTcp: detection.FlagSYN, TimestampCaptura: at(sec)}
-}
-
-func dnsQuery(sec float64, client, domain string) *psychoscopev1.EventoFluxoRede {
-	return &psychoscopev1.EventoFluxoRede{IpOrigem: client, IpDestino: "10.0.0.53", PortaDestino: 53,
-		Protocolo: psychoscopev1.ProtocoloTransporte_PROTO_UDP, TimestampCaptura: at(sec),
-		MetadadosL7: &psychoscopev1.EventoFluxoRede_Dns{Dns: &psychoscopev1.EventoFluxoRede_MetadadosDNS{DominioConsultado: domain, TipoRegistro: 1}}}
-}
-
-func dnsResp(sec float64, client, domain string, rcode uint32) *psychoscopev1.EventoFluxoRede {
-	return &psychoscopev1.EventoFluxoRede{IpOrigem: "10.0.0.53", IpDestino: client, PortaOrigem: 53,
-		Protocolo: psychoscopev1.ProtocoloTransporte_PROTO_UDP, TimestampCaptura: at(sec),
-		MetadadosL7: &psychoscopev1.EventoFluxoRede_Dns{Dns: &psychoscopev1.EventoFluxoRede_MetadadosDNS{
-			DominioConsultado: domain, TipoRegistro: 1, CodigoResposta: rcode, EhResposta: true}}}
-}
+// Os construtores de eventos e o executor vivem em ruletest, para que toda regra os reuse.
+var (
+	at       = ruletest.At
+	syn      = ruletest.SYN
+	dnsQuery = ruletest.DNSQuery
+	dnsResp  = ruletest.DNSResponse
+)
 
 func run(t *testing.T, cfg Config, events ...*psychoscopev1.EventoFluxoRede) []*psychoscopev1.Alerta {
 	t.Helper()
@@ -51,17 +25,7 @@ func run(t *testing.T, cfg Config, events ...*psychoscopev1.EventoFluxoRede) []*
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &pub{}
-	e := detection.NewEngine(detection.EngineConfig{Window: time.Minute, QueueSize: len(events) + 1}, rs, p)
-	for _, ev := range events {
-		if !e.Submit("mod-net-sensor", ev) {
-			t.Fatal("fila cheia no teste")
-		}
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Run esvazia a fila e retorna
-	e.Run(ctx)
-	return p.as
+	return ruletest.Run(t, rs, ruletest.Nets(events...)...)
 }
 
 func names(as []*psychoscopev1.Alerta) []string {

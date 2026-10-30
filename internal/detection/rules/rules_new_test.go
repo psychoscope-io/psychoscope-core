@@ -8,19 +8,14 @@ import (
 	"time"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/detection"
+	"github.com/psychoscope-io/psychoscope-core/internal/detection/ruletest"
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 )
 
-func tlsHello(sec float64, client, dst, sni, version string) *psychoscopev1.EventoFluxoRede {
-	return &psychoscopev1.EventoFluxoRede{IpOrigem: client, IpDestino: dst, PortaOrigem: 50000, PortaDestino: 443,
-		Protocolo: psychoscopev1.ProtocoloTransporte_PROTO_TCP, FlagsTcp: detection.FlagPSH | detection.FlagACK, TimestampCaptura: at(sec),
-		MetadadosL7: &psychoscopev1.EventoFluxoRede_Tls{Tls: &psychoscopev1.EventoFluxoRede_MetadadosTLS{SniHostname: sni, VersaoTls: version}}}
-}
-
-func icmp(sec float64, src, dst string, typ uint32) *psychoscopev1.EventoFluxoRede {
-	return &psychoscopev1.EventoFluxoRede{IpOrigem: src, IpDestino: dst, Protocolo: psychoscopev1.ProtocoloTransporte_PROTO_ICMP,
-		IcmpTipo: typ, TimestampCaptura: at(sec)}
-}
+var (
+	tlsHello = ruletest.TLSHello
+	icmp     = ruletest.ICMP
+)
 
 func synFrom(sec float64, src, dst string, sport, dport uint32) *psychoscopev1.EventoFluxoRede {
 	e := syn(sec, src, dst, dport)

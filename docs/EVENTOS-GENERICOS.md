@@ -23,3 +23,7 @@ Uma regra declara `Kind()` igual a `detection.KindGeneric` e consulta `w.OfType(
 ## Memória da janela
 
 A janela limita a contagem de eventos (`detection.max_events`) e também o peso estimado em bytes: um evento de rede conta 256 bytes, e um genérico conta pelo tamanho do tipo, das chaves e dos valores. O teto de bytes é a contagem multiplicada por 256, então eventos genéricos grandes enchem a janela mais rápido e empurram os mais antigos (de qualquer módulo) para fora.
+
+## Testar uma regra
+
+`internal/detection/ruletest` monta os eventos num tempo controlado (`Gen(sec, tipo, atributos)` para genéricos, `SYN`, `DNSQuery` e outros para rede), passa-os por um motor de verdade com `Run` e confere os alertas com o teste de tabela `Table`. O `ruletest_test.go` traz uma regra genérica de exemplo (`teste.login_burst`) com casos de limiar, usuários e módulos diferentes e eventos fora da janela.
