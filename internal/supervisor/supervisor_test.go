@@ -320,6 +320,9 @@ func TestAuthorizePolicy(t *testing.T) {
 		return i.State == psychoscopev1.EstadoModulo_ESTADO_INICIANDO && i.PID != 0
 	})
 	child, _ := e.sup.Get("mod-a")
+	if child.PID == 0 { // o filho tem de seguir vivo (PSY_NOCONNECT) enquanto as autorizacoes sao conferidas
+		t.Fatal("o filho deveria estar vivo, com PID registrado")
+	}
 	uid := uint32(os.Geteuid())
 	h := func(id string) *psychoscopev1.HelloModulo { return &psychoscopev1.HelloModulo{IdModulo: id} }
 
