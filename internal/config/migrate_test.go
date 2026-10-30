@@ -90,3 +90,22 @@ func loadFromBytes(t *testing.T, raw []byte) *Config {
 	}
 	return c
 }
+
+func TestMigrateSensorKeepsCustomModuleIDAndSocket(t *testing.T) {
+	in := `{"socket":"/run/psychoscope/custom.sock","modules":[{"id":"sensor-eth1","path":"/usr/local/bin/mod-net-sensor","args":["-i","eth1"]}]}`
+	r, err := MigrateSensorToExternal([]byte(in), "psychoscope-sensor")
+	if err != nil || !r.Changed {
+		t.Fatalf("err=%v changed=%v", err, r.Changed)
+	}
+	if got := strings.Join(r.SensorEnv, "|"); got != "PSYCHOSCOPE_MODULE_ID=sensor-eth1|PSYCHOSCOPE_SOCKET=/run/psychoscope/custom.sock|SENSOR_ARGS=-i eth1" {
+		t.Errorf("sensor.env: %q", got)
+	}
+	// com o id padrao e sem socket proprio nada disso e necessario
+	r, _ = MigrateSensorToExternal([]byte(`{"modules":[{"id":"mod-net-sensor","path":"/x/mod-net-sensor"}]}`), "psychoscope-sensor")
+	if len(r.SensorEnv) != 0 {
+		t.Errorf("padroes nao entram no sensor.env: %q", r.SensorEnv)
+	}
+	if _, err := MigrateSensorToExternal([]byte(`{"socket":"/run/meu socket.sock","modules":[{"id":"a","path":"/x/mod-net-sensor"}]}`), "u"); err == nil {
+		t.Error("socket com espaco nao e migravel")
+	}
+}

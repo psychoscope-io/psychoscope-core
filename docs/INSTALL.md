@@ -54,7 +54,9 @@ capabilities de captura só ao sensor. Use `--dry-run` para ver o que seria feit
 O mínimo é a interface do sensor, em `/etc/psychoscope/sensor.env` (`SENSOR_ARGS=-i eth0`; outros argumentos do sensor, como
 `--bpf`, entram na mesma linha, separados por espaço e sem aspas). O exemplo usa `eth0`, que em muitas máquinas se chama
 `enp3s0`, `wlp2s0` etc.: veja os nomes reais e confira o ambiente (sem `sudo`, só para ler) antes de subir o serviço. Depois
-de editar o `sensor.env`: `sudo systemctl restart psychoscope-sensor`.
+de editar o `sensor.env`: `sudo systemctl restart psychoscope-sensor`. Se o `id` do módulo ou o `socket` do Core forem diferentes dos
+padrões (`mod-net-sensor` e `/run/psychoscope/core.sock`), o sensor precisa saber: ponha `PSYCHOSCOPE_MODULE_ID=...` e
+`PSYCHOSCOPE_SOCKET=...` no mesmo arquivo (a migração automática já faz isso).
 
 ```
 /usr/local/bin/mod-net-sensor --list-interfaces

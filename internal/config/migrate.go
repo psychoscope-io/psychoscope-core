@@ -46,7 +46,7 @@ func MigrateSensorToExternal(raw []byte, user string) (SensorMigration, error) {
 	if idx < 0 {
 		return SensorMigration{}, nil
 	}
-	envLines, err := sensorEnvLines(mods[idx])
+	envLines, err := sensorEnvLines(mods[idx], top)
 	if err != nil {
 		return SensorMigration{}, err
 	}
@@ -82,7 +82,11 @@ func isLaunchedSensor(m map[string]json.RawMessage) bool {
 	return !external && path != "" && filepath.Base(path) == sensorBinaryName
 }
 
-func sensorEnvLines(m map[string]json.RawMessage) ([]string, error) {
+// sensorEnvLines monta o sensor.env. O supervisor antigo repassava ao filho o id do modulo e o
+// socket do Core por ambiente (PSYCHOSCOPE_MODULE_ID e PSYCHOSCOPE_SOCKET); sob a unit isso
+// precisa estar no arquivo, senao um id ou socket personalizados migrariam para um sensor que o
+// Core recusa ou que nao acha o socket.
+func sensorEnvLines(m, top map[string]json.RawMessage) ([]string, error) {
 	var args, env []string
 	if a, ok := m["args"]; ok {
 		if err := json.Unmarshal(a, &args); err != nil {
@@ -95,6 +99,18 @@ func sensorEnvLines(m map[string]json.RawMessage) ([]string, error) {
 		}
 	}
 	var lines []string
+	var id, socket string
+	_ = json.Unmarshal(m["id"], &id)
+	_ = json.Unmarshal(top["socket"], &socket)
+	for _, kv := range [][2]string{{"PSYCHOSCOPE_MODULE_ID", id}, {"PSYCHOSCOPE_SOCKET", socket}} {
+		if kv[1] == "" || (kv[0] == "PSYCHOSCOPE_MODULE_ID" && kv[1] == sensorBinaryName) {
+			continue
+		}
+		if strings.ContainsAny(kv[1], " \t\r\n\"'\\$%") {
+			return nil, fmt.Errorf("o valor %q de %s tem espaco, aspas ou caractere especial; migre a mao", kv[1], kv[0])
+		}
+		lines = append(lines, kv[0]+"="+kv[1])
+	}
 	for _, a := range args {
 		if a == "" || strings.ContainsAny(a, " \t\r\n\"'\\$%") {
 			return nil, fmt.Errorf("o argumento %q do sensor tem espaco, aspas ou caractere especial que o systemd dividiria errado; coloque-o a mao em SENSOR_ARGS no sensor.env", a)
