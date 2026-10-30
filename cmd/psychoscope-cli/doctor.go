@@ -112,7 +112,7 @@ func (d doctorRun) checkSensors(ctx context.Context, configPath string) report {
 	}
 	var rep report
 	for _, s := range specs {
-		if s.External && s.ID == sensorBinary {
+		if s.External { // o sensor e o unico modulo externo; o id pode ser personalizado
 			rep = append(rep, externalSensorFinding(s))
 		}
 	}
