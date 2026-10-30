@@ -53,10 +53,14 @@ func migrateConfig(configPath, envPath, sensorUser string, out io.Writer) error 
 	if _, err := os.Stat(backup); err == nil {
 		return fmt.Errorf("%s ja existe: mova-o antes de migrar de novo (ele guarda a configuracao original)", backup)
 	}
+	// Se algo falhar antes de a configuracao ser regravada, o backup (possivelmente parcial) sai de
+	// cena: com ele no lugar, repetir o comando seria recusado e a original ainda esta intacta.
 	if err := os.WriteFile(backup, raw, info.Mode().Perm()); err != nil { //nolint:gosec // copia ao lado da configuracao, no caminho dado pelo operador (root)
+		_ = os.Remove(backup)
 		return fmt.Errorf("salvando a configuracao original: %w", err)
 	}
 	if err := writeSensorEnv(envPath, mig.SensorEnv, out); err != nil {
+		_ = os.Remove(backup)
 		return err
 	}
 	if err := os.WriteFile(configPath, mig.Config, info.Mode().Perm()); err != nil { //nolint:gosec // mantem o modo e o dono do arquivo original

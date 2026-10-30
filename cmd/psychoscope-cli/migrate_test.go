@@ -87,3 +87,20 @@ func TestMigrateConfigWritesNothingWhenNotFaithfulOrBackupExists(t *testing.T) {
 		t.Error("a configuracao nao pode ser alterada")
 	}
 }
+
+func TestMigrateConfigFailedEnvWriteLeavesNoBackupAndAllowsRetry(t *testing.T) {
+	conf, env := migrateDir(t, oldConfig)
+	missing := filepath.Join(filepath.Dir(env), "ausente", "sensor.env") // o diretorio nao existe: a gravacao falha
+	if err := migrateConfig(conf, missing, "psychoscope-sensor", &bytes.Buffer{}); err == nil {
+		t.Fatal("deveria falhar ao gravar o sensor.env")
+	}
+	if _, err := os.Stat(conf + migrationBackupExt); err == nil {
+		t.Error("o backup nao pode ficar para tras: ele impediria repetir o comando")
+	}
+	if b, _ := os.ReadFile(conf); string(b) != oldConfig {
+		t.Error("a configuracao nao pode ser alterada")
+	}
+	if err := migrateConfig(conf, env, "psychoscope-sensor", &bytes.Buffer{}); err != nil {
+		t.Fatalf("repetir depois de corrigir o caminho deve funcionar: %v", err)
+	}
+}
