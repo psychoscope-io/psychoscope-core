@@ -228,10 +228,10 @@ run_distro() {
   echo "- remocao"
   check "uninstall mantem configuracao, sensor.env e banco" 'bash /get.sh --uninstall >/dev/null && test -f /etc/psychoscope/psychoscope.json && test -f /etc/psychoscope/sensor.env && test -f /var/lib/psychoscope/alerts.db && ! test -e /usr/local/bin/psychoscope && ! test -e /etc/systemd/system/psychoscope.service && ! test -e /etc/systemd/system/psychoscope-sensor.service'
   check "uninstall --purge apaga tudo e os dois usuarios" 'bash /get.sh --uninstall --purge --yes >/dev/null && ! test -e /etc/psychoscope && ! test -e /var/lib/psychoscope && ! getent passwd psychoscope && ! getent passwd psychoscope-sensor'
-  cleanup
 }
 
 [ "$LOCAL_BUILD" = 0 ] || prepare_local
-for d in $DISTROS; do run_distro "$d"; done
+# cleanup depois de cada distribuicao: um return antecipado de run_distro nao pode deixar o conteiner vivo
+for d in $DISTROS; do run_distro "$d"; cleanup; done
 echo
 if [ "$FAILS" -eq 0 ]; then echo "DISTROS OK"; else echo "DISTROS: $FAILS verificacao(oes) falharam"; exit 1; fi
