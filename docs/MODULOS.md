@@ -32,6 +32,8 @@ O molde **não tem capability alguma**, roda com `NoNewPrivileges=yes` e só fal
 - **As entrega como ambientes** (`AmbientCapabilities=` e `CapabilityBoundingSet=` com a mesma lista), como o sensor faz com `CAP_NET_RAW` e `CAP_NET_ADMIN`.
 - **Nunca usa `setcap`** no binário (o systemd 252 do Debian 12 anula as file capabilities quando a unit usa opções de isolamento) e **nunca `NoNewPrivileges=no`**.
 - Não amplia o que o Core tem: o Core continua sem capabilities.
+- O molde usa `MemoryDenyWriteExecute=yes`, que impede memória gravável e executável: módulos em Go, Rust ou Python rodam; runtimes com JIT (Node.js, Java, PyPy) precisam tirar essa linha, documentando o motivo.
+- O molde foi conferido com `systemd-analyze verify` (sem erro de sintaxe), mas não foi iniciado com um módulo de verdade; o módulo de exemplo fará isso.
 
 ## Eventos
 

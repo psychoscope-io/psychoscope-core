@@ -42,6 +42,7 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
+# Quebra runtimes com JIT (Node.js, Java, PyPy): para um modulo assim, retire esta linha e documente o motivo.
 MemoryDenyWriteExecute=yes
 # So o socket do Core. Acrescente AF_INET/AF_INET6 se o modulo precisar de rede.
 RestrictAddressFamilies=AF_UNIX
