@@ -151,7 +151,9 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
   converte só esse módulo para a forma externa: guarda a cópia original em `/etc/psychoscope/psychoscope.json.antes-da-migracao`,
   passa `args` e `env` para `/etc/psychoscope/sensor.env` (que nunca é sobrescrito) e mantém o resto da configuração. Se a conversão
   não for fiel (mais de um sensor, argumento com espaço ou aspas), ele recusa **antes de instalar qualquer coisa** e diz o que fazer
-  à mão. Para migrar manualmente: `sudo psychoscope-cli migrate-config`, ou troque o módulo por
+  à mão. A conversão só é gravada depois que os binários novos estão instalados, então uma falha na instalação nunca deixa a
+  configuração nova com binários antigos. `psychoscope-cli migrate-config --check` só valida, sem escrever nada. Para migrar
+  manualmente: `sudo psychoscope-cli migrate-config`, ou troque o módulo por
   `{ "id": "mod-net-sensor", "external": true, "user": "psychoscope-sensor" }` e ponha os argumentos em `SENSOR_ARGS`.
   Para **voltar** a uma versão anterior à migração (`psychoscope-update --core-version 0.11.x`), restaure antes
   `/etc/psychoscope/psychoscope.json.antes-da-migracao` sobre `psychoscope.json`: o Core antigo rejeita `external` na configuração.

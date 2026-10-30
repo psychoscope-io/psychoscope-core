@@ -104,3 +104,46 @@ func TestMigrateConfigFailedEnvWriteLeavesNoBackupAndAllowsRetry(t *testing.T) {
 		t.Fatalf("repetir depois de corrigir o caminho deve funcionar: %v", err)
 	}
 }
+
+func TestMigrateConfigCheckWritesNothing(t *testing.T) {
+	conf, env := migrateDir(t, oldConfig)
+	var out bytes.Buffer
+	if err := cmdMigrateConfig([]string{"--check", "--config", conf, "--sensor-env", env}, &out); err != nil {
+		t.Fatalf("a migracao fiel deve passar na verificacao: %v", err)
+	}
+	for _, p := range []string{conf + migrationBackupExt, env} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("--check nao pode criar %s", p)
+		}
+	}
+	if b, _ := os.ReadFile(conf); string(b) != oldConfig {
+		t.Error("--check nao pode alterar a configuracao")
+	}
+}
+
+func TestMigrateConfigCheckRefusesWhatMigrateRefuses(t *testing.T) {
+	bad := `{"modules":[{"id":"a","path":"/x/mod-net-sensor","args":["--bpf","tcp port 80"]}]}`
+	conf, env := migrateDir(t, bad)
+	if err := cmdMigrateConfig([]string{"--check", "--config", conf, "--sensor-env", env}, &bytes.Buffer{}); err == nil {
+		t.Error("conversao infiel deve falhar na verificacao")
+	}
+
+	conf, env = migrateDir(t, oldConfig)
+	if err := os.WriteFile(conf+migrationBackupExt, []byte("antigo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdMigrateConfig([]string{"--check", "--config", conf, "--sensor-env", env}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "ja existe") {
+		t.Errorf("backup existente deve falhar na verificacao: %v", err)
+	}
+}
+
+func TestMigrateConfigCheckOnMigratedConfigIsHarmless(t *testing.T) {
+	conf, env := migrateDir(t, oldConfig)
+	if err := migrateConfig(conf, env, "psychoscope-sensor", &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := cmdMigrateConfig([]string{"--check", "--config", conf, "--sensor-env", env}, &out); err != nil || !strings.Contains(out.String(), "nada a migrar") {
+		t.Errorf("verificar o ja migrado deve passar: %v %q", err, out.String())
+	}
+}

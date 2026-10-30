@@ -63,10 +63,14 @@ UNIT_DIR=/etc/systemd/system
 UPDATING=0
 [ ! -e "$(D "$UNIT_DIR")/psychoscope.service" ] || UPDATING=1
 
-# 0. configuracao de uma versao antiga (sensor lancado pelo Core) -> modulo externo. Primeiro de tudo:
-# se a conversao nao for fiel, ela recusa e nada foi instalado nem alterado.
+# 0. configuracao de uma versao antiga (sensor lancado pelo Core) -> modulo externo. Aqui so se VALIDA
+# (--check nao escreve nada, nem em --dry-run): se a conversao nao for fiel, ela recusa e nada foi
+# instalado nem alterado. A migracao em si acontece depois dos binarios (passo 2b), para que uma falha
+# na instalacao nunca deixe a configuracao nova com binarios antigos.
+MIGRATE_ARGS=()
 if [ -e "$(D "$CONF")/psychoscope.json" ]; then
-  run "$BIN_DIR/psychoscope-cli" migrate-config --config "$(D "$CONF")/psychoscope.json" --sensor-env "$(D "$CONF")/sensor.env" ||
+  MIGRATE_ARGS=(migrate-config --config "$(D "$CONF")/psychoscope.json" --sensor-env "$(D "$CONF")/sensor.env")
+  "$BIN_DIR/psychoscope-cli" "${MIGRATE_ARGS[@]}" --check ||
     die "a configuracao existente nao pode ser migrada sozinha; veja a mensagem acima e docs/INSTALL.md (Atualizando de 0.11 ou anterior)"
 fi
 
@@ -91,6 +95,12 @@ fi
 if [ -f "$HERE/get.sh" ]; then
   run install -d -m 0755 "$(D "$PREFIX/sbin")"
   run install -m 0755 "$HERE/get.sh" "$(D "$PREFIX/sbin")/psychoscope-update"
+fi
+
+# 2b. migra a configuracao antiga (ja validada no passo 0), com os binarios novos no lugar
+if [ "${#MIGRATE_ARGS[@]}" -gt 0 ]; then
+  run "$BIN_DIR/psychoscope-cli" "${MIGRATE_ARGS[@]}" ||
+    die "a migracao da configuracao falhou depois de instalar os binarios; a original esta intacta ou em psychoscope.json.antes-da-migracao; veja docs/INSTALL.md (Atualizando de 0.11 ou anterior)"
 fi
 
 # 3. configuracao (nunca sobrescreve)

@@ -7,12 +7,16 @@ fail() { echo "FALHOU: $*" >&2; exit 1; }
 
 mkdir -p "$T/bin" "$T/stage"
 for b in psychoscope mod-net-sensor; do printf '#!/bin/sh\necho %s\n' "$b" > "$T/bin/$b"; chmod +x "$T/bin/$b"; done
-# O psychoscope-cli falso registra as chamadas de migrate-config e falha se MIGRATE_FAIL existir.
+# O psychoscope-cli falso registra as chamadas de migrate-config. MIGRATE_FAIL faz a verificacao
+# (--check) recusar; MIGRATE_APPLY_FAIL faz a migracao em si falhar, depois de uma verificacao ok.
 cat > "$T/bin/psychoscope-cli" <<SH
 #!/bin/sh
 if [ "\$1" = migrate-config ]; then
   echo "\$@" >> "$T/migrate.log"
-  [ ! -e "$T/MIGRATE_FAIL" ] || { echo "migracao recusada" >&2; exit 1; }
+  case " \$* " in
+    *" --check "*) [ ! -e "$T/MIGRATE_FAIL" ] || { echo "migracao recusada" >&2; exit 1; } ;;
+    *) [ ! -e "$T/MIGRATE_APPLY_FAIL" ] || { echo "falha ao gravar" >&2; exit 1; } ;;
+  esac
 fi
 echo psychoscope-cli
 SH
@@ -65,8 +69,10 @@ grep -q '"0600"' "$T/stage/etc/psychoscope/psychoscope.json" || fail "a configur
 grep -q "mantendo /etc/psychoscope/psychoscope.json existente" "$T/out2.txt" || fail "mensagem de preservacao"
 grep -q '^SENSOR_ARGS=-i enp3s0$' "$T/stage/etc/psychoscope/sensor.env" || fail "o sensor.env do administrador foi sobrescrito"
 grep -q "mantendo /etc/psychoscope/sensor.env existente" "$T/out2.txt" || fail "mensagem de preservacao do sensor.env"
-grep -qx -- "migrate-config --config $T/stage/etc/psychoscope/psychoscope.json --sensor-env $T/stage/etc/psychoscope/sensor.env" "$T/migrate.log" ||
-  fail "atualizar uma configuracao existente deve chamar migrate-config com os caminhos dela"
+M="migrate-config --config $T/stage/etc/psychoscope/psychoscope.json --sensor-env $T/stage/etc/psychoscope/sensor.env"
+[ "$(sed -n 1p "$T/migrate.log")" = "$M --check" ] || fail "a configuracao existente deve ser validada (--check) antes de tudo"
+[ "$(sed -n 2p "$T/migrate.log")" = "$M" ] || fail "depois de validada, a migracao deve ser feita com os caminhos dela"
+[ "$(wc -l < "$T/migrate.log")" = 2 ] || fail "esperadas so a verificacao e a migracao"
 grep -q "Atualizacao concluida" "$T/out2.txt" || fail "reinstalar deveria dizer que e uma atualizacao"
 if grep -q "enable --now" "$T/out2.txt"; then fail "a atualizacao nao deveria repetir os passos da instalacao nova"; fi
 grep -q "systemctl restart psychoscope" "$T/out2.txt" || fail "a atualizacao deveria dizer como reiniciar o servico"
@@ -80,6 +86,15 @@ grep -q "nao pode ser migrada sozinha" "$T/err4.txt" || fail "mensagem de migrac
 [ ! -e "$T/stage4/usr" ] || fail "nada deve ser instalado quando a migracao e recusada"
 cmp -s "$T/stage4-conf.json" "$T/stage4/etc/psychoscope/psychoscope.json" || fail "a configuracao nao pode mudar"
 rm "$T/MIGRATE_FAIL"
+
+# 2c. se a migracao falhar depois de validada, a instalacao aborta com a mensagem certa e a
+# configuracao fica como estava
+touch "$T/MIGRATE_APPLY_FAIL"
+mkdir -p "$T/stage5/etc/psychoscope"; cp "$T/stage4-conf.json" "$T/stage5/etc/psychoscope/psychoscope.json"
+if "$HERE/install.sh" --bin-dir "$T/bin" --destdir "$T/stage5" >"$T/out5.txt" 2>"$T/err5.txt"; then fail "falha na migracao deveria abortar a instalacao"; fi
+grep -q "migracao da configuracao falhou depois de instalar os binarios" "$T/err5.txt" || fail "mensagem de falha na migracao"
+cmp -s "$T/stage4-conf.json" "$T/stage5/etc/psychoscope/psychoscope.json" || fail "a configuracao nao pode ser alterada quando a migracao falha"
+rm "$T/MIGRATE_APPLY_FAIL"
 
 # 3. prefixo customizado reflete na unit
 "$HERE/install.sh" --bin-dir "$T/bin" --destdir "$T/stage2" --prefix /opt/psy >/dev/null 2>&1
