@@ -54,9 +54,9 @@ func (m *Model) modulesPanel(w, h int) string {
 			contato = mod.UltimoContato.AsTime().Local().Format(time.TimeOnly)
 		}
 		state := stateStyle(mod.Estado).Render(fmt.Sprintf("%-12s", stateName(mod.Estado)))
-		row := fmt.Sprintf(" %-18s %s %7d %5d %9d %9d %8d  %-8s",
+		row := fmt.Sprintf(" %-18s %s %7d %5d %9d %9s %8d  %-8s",
 			trunc(mod.IdModulo, 18), state, mod.Pid, mod.Reinicios,
-			st.GetEventosProcessados(), st.GetPacotesCapturados(), st.GetPacotesDescartados(), contato)
+			st.GetEventosProcessados(), ctl.PacketsCell(st), st.GetPacotesDescartados(), contato)
 		if i == m.selected && m.focus == focusModules {
 			row = selStyle.Render(ansi.Strip(row))
 		} else if i == m.selected {

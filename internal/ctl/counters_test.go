@@ -43,3 +43,15 @@ func TestLossesOnlyListsRealLosses(t *testing.T) {
 		t.Fatal("sem status ou sem contadores deve devolver nil")
 	}
 }
+
+func TestPacketsCellShowsDashWhenNoPacketsWereReported(t *testing.T) {
+	if got := PacketsCell(nil); got != "-" {
+		t.Errorf("sem status: %q", got)
+	}
+	if got := PacketsCell(&psychoscopev1.StatusModulo{EventosProcessados: 9}); got != "-" {
+		t.Errorf("modulo que nao captura pacotes: %q", got)
+	}
+	if got := PacketsCell(&psychoscopev1.StatusModulo{PacotesCapturados: 1234}); got != "1234" {
+		t.Errorf("modulo de rede: %q", got)
+	}
+}

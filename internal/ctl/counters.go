@@ -2,6 +2,7 @@ package ctl
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
@@ -78,4 +79,14 @@ func Losses(st *psychoscopev1.StatusModulo) []Counter {
 		}
 	}
 	return out
+}
+
+// PacketsCell e a contagem de pacotes capturados para exibir numa tabela de modulos. Pacote e
+// coisa de modulo de rede: quem nao informou nenhum (modulos de outro tipo, ou um sensor que
+// ainda nao capturou) mostra "-" em vez de um zero que pareceria uma medida.
+func PacketsCell(st *psychoscopev1.StatusModulo) string {
+	if st.GetPacotesCapturados() == 0 {
+		return "-"
+	}
+	return strconv.FormatUint(st.GetPacotesCapturados(), 10)
 }

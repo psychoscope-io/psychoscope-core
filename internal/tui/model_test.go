@@ -438,3 +438,23 @@ func TestMetricsFetchedOnInitAndTick(t *testing.T) {
 		t.Fatalf("metricas via backend:\n%s", plain(m))
 	}
 }
+
+func TestModulesTableShowsDashForModulesWithoutPackets(t *testing.T) {
+	be := &fakeBackend{mods: []*psychoscopev1.ModuloInfo{
+		{IdModulo: "mod-login", Estado: psychoscopev1.EstadoModulo_ESTADO_CONECTADO, Pid: 77,
+			UltimoStatus: &psychoscopev1.StatusModulo{EventosProcessados: 31}},
+	}}
+	m := NewModel(be)
+	feed(m, exec(m.fetchModules())...)
+	var row string
+	for _, l := range strings.Split(plain(m), "\n") {
+		if strings.Contains(l, "mod-login") {
+			row = l
+		}
+	}
+	// colunas: MODULO ESTADO PID REIN. EVENTOS PACOTES DESCART. CONTATO
+	f := strings.Fields(row)
+	if len(f) < 8 || f[5] != "31" || f[6] != "-" {
+		t.Fatalf("modulo sem pacotes deve mostrar '-' em PACOTES: %q", row)
+	}
+}
