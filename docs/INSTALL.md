@@ -17,7 +17,7 @@ bash get.sh
 
 Opções: `--core-version X.Y.Z` e `--sensor-version X.Y.Z` fixam versões (as duas são independentes), `--check` só
 compara a versão instalada com a última release (sai com 1 se houver atualização), `--dry-run` mostra o que seria
-instalado e `--no-setcap` pula a capability do sensor. Depois da primeira instalação o mesmo script fica em
+instalado. Depois da primeira instalação o mesmo script fica em
 `/usr/local/sbin/psychoscope-update`. Siga para o passo 3 (configurar). Os passos 1 e 2 abaixo são o caminho manual,
 útil sem acesso à internet na máquina de destino ou para auditar cada etapa.
 
@@ -44,26 +44,30 @@ cd psychoscope-core_<versao>_linux_amd64
 sudo ./deploy/install.sh --sensor ../mod-net-sensor_<versao>_linux_amd64/mod-net-sensor
 ```
 
-O script cria o usuário de sistema `psychoscope`, instala os binários em `/usr/local/bin`, aplica
-`setcap cap_net_raw,cap_net_admin=eip` **somente** no sensor, grava `/etc/psychoscope/psychoscope.json`
-(se ainda não existir) e a unit `/etc/systemd/system/psychoscope.service`. Use `--dry-run` para ver o que
-seria feito, `--prefix` para outro diretório e `--no-setcap` se preferir aplicar a capability depois.
+O script cria os usuários de sistema `psychoscope` (Core) e `psychoscope-sensor` (sensor), instala os binários em
+`/usr/local/bin`, grava `/etc/psychoscope/psychoscope.json` e `/etc/psychoscope/sensor.env` (se ainda não existirem) e as
+units `psychoscope.service` e `psychoscope-sensor.service` em `/etc/systemd/system`. Não há `setcap`: o systemd entrega as
+capabilities de captura só ao sensor. Use `--dry-run` para ver o que seria feito e `--prefix` para outro diretório.
 
 ## 3. Configurar
 
-Edite `/etc/psychoscope/psychoscope.json`. O mínimo é a interface do sensor. O exemplo usa `eth0`, que
-em muitas máquinas se chama `enp3s0`, `wlp2s0` etc.: veja os nomes reais e confira o ambiente (sem
-`sudo`, só para ler) antes de subir o serviço:
+O mínimo é a interface do sensor, em `/etc/psychoscope/sensor.env` (`SENSOR_ARGS=-i eth0`; outros argumentos do sensor, como
+`--bpf`, entram na mesma linha, separados por espaço e sem aspas). O exemplo usa `eth0`, que em muitas máquinas se chama
+`enp3s0`, `wlp2s0` etc.: veja os nomes reais e confira o ambiente (sem `sudo`, só para ler) antes de subir o serviço. Depois
+de editar o `sensor.env`: `sudo systemctl restart psychoscope-sensor`.
 
 ```
 /usr/local/bin/mod-net-sensor --list-interfaces
 /usr/local/bin/mod-net-sensor --check -i <interface>
 ```
 
+O `psychoscope.json` declara o sensor como módulo **externo**: o systemd o mantém, e o Core só o autentica pelo usuário
+(`SO_PEERCRED`). O usuário precisa existir na partida do Core.
+
 ```json
 {
   "modules": [
-    { "id": "mod-net-sensor", "path": "/usr/local/bin/mod-net-sensor", "args": ["-i", "eth0"] }
+    { "id": "mod-net-sensor", "external": true, "user": "psychoscope-sensor" }
   ]
 }
 ```
@@ -84,8 +88,8 @@ Chaves desconhecidas são rejeitadas na partida com a lista das válidas.
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now psychoscope
-sudo systemctl status psychoscope
-sudo journalctl -u psychoscope -f
+sudo systemctl status psychoscope psychoscope-sensor   # habilitar o Core basta: ele puxa a unit do sensor
+sudo journalctl -u psychoscope -u psychoscope-sensor -f
 
 sudo psychoscope-cli list          # módulos e estado
 sudo psychoscope-cli               # TUI (módulos, alertas ao vivo, p/r/x)
@@ -120,32 +124,45 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
 
 ## Modelo de privilégios
 
-- O Core roda como `psychoscope`, **sem capabilities**. O bounding set da unit limita o máximo a
-  `CAP_NET_RAW`/`CAP_NET_ADMIN`.
-- O sensor é um processo filho e ganha essas duas capabilities pelas *file capabilities* do binário
-  (`setcap`). Por isso a unit mantém `NoNewPrivileges=no`: com `yes`, o kernel ignora file capabilities no
-  `execve` e a captura falharia. O isolamento restante (`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`,
-  filtro de syscalls, `RestrictAddressFamilies`, `MemoryDenyWriteExecute` etc.) continua aplicado; o exposure
-  level do `systemd-analyze security` da unit é 2.3 (OK).
-- Se você preferir `NoNewPrivileges=yes`, remova o `setcap` do sensor e conceda as capabilities ao Core com
-  `AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN` — o que dá essas capabilities ao Core e a todos os módulos.
-- Ao atualizar o binário do sensor, reaplique o `setcap` (o `install.sh` faz isso).
+- O Core roda como `psychoscope`, **sem nenhuma capability** (`CapabilityBoundingSet=` vazio) e com `NoNewPrivileges=yes`, mais
+  `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `PrivateDevices`, filtro de syscalls, `RestrictAddressFamilies` (sem
+  `AF_PACKET`) e `MemoryDenyWriteExecute`.
+- O sensor roda em unit própria (`psychoscope-sensor.service`), como `psychoscope-sensor`, **não como `root` nem como o usuário do
+  Core**. Só ele recebe `CAP_NET_RAW` e `CAP_NET_ADMIN`, entregues pelo systemd como capabilities *ambientes* (o binário não tem
+  `setcap`), com o mesmo tipo de isolamento do Core e acesso ao socket pelo grupo `psychoscope`. Os arquivos `0600` do Core
+  (banco de alertas, ajustes e estado do motor) ficam fora do alcance dele; a configuração (`0640`, sem segredos) é legível pelo grupo.
+- O Core só aceita o módulo `mod-net-sensor` vindo do UID exato do `user` configurado (conferido pelo kernel); nem `root` nem o
+  UID do próprio Core assumem esse módulo.
+- Por que não `setcap`: no systemd 252 (Debian 12), qualquer opção de isolamento baseada em seccomp faz o kernel marcar o processo
+  com `NoNewPrivs`, o que anula as file capabilities do binário; no 255 ou mais novo (Ubuntu 24.04, Fedora) isso não ocorre. As
+  capabilities ambientes funcionam nos dois.
+- `psychoscope-cli stop mod-net-sensor` (ou `stop` na TUI) pede o encerramento por IPC; quem reinicia o sensor é o systemd
+  (`Restart=on-failure`: uma saída limpa fica parada) e `resume` só orienta `systemctl start psychoscope-sensor`.
 
 ## Atualizar, desinstalar, backup
 
 - **Atualizar:** `psychoscope-update --check` mostra se há versão nova e `psychoscope-update` baixa, confere, instala e
   reinicia o serviço (inclui o `daemon-reload`, necessário porque a atualização pode trocar a unit). A configuração e o
-  banco de alertas são preservados. Sem o atualizador, repita o passo 2 com os novos tarballs e rode
+  banco de alertas são preservados (veja "Atualizando de 0.11 ou anterior"). Sem o atualizador, repita o passo 2 com os novos tarballs e rode
   `sudo systemctl daemon-reload && sudo systemctl restart psychoscope`.
-- **Backup:** copie `/etc/psychoscope/` e `/var/lib/psychoscope/alerts.db` (o `engine-state.json`, ao lado dele, é descartável: guarda IPs e domínios do tráfego, e perdê-lo só faz o beacon recomeçar) (SQLite em modo WAL; use
+- **Atualizando de 0.11 ou anterior:** nessas versões o Core lançava o sensor (`path` e `args` na configuração). O `install.sh`
+  converte só esse módulo para a forma externa: guarda a cópia original em `/etc/psychoscope/psychoscope.json.antes-da-migracao`,
+  passa `args` e `env` para `/etc/psychoscope/sensor.env` (que nunca é sobrescrito) e mantém o resto da configuração. Se a conversão
+  não for fiel (mais de um sensor, argumento com espaço ou aspas), ele recusa **antes de instalar qualquer coisa** e diz o que fazer
+  à mão. Para migrar manualmente: `sudo psychoscope-cli migrate-config`, ou troque o módulo por
+  `{ "id": "mod-net-sensor", "external": true, "user": "psychoscope-sensor" }` e ponha os argumentos em `SENSOR_ARGS`.
+  Para **voltar** a uma versão anterior à migração (`psychoscope-update --core-version 0.11.x`), restaure antes
+  `/etc/psychoscope/psychoscope.json.antes-da-migracao` sobre `psychoscope.json`: o Core antigo rejeita `external` na configuração.
+- **Backup:** copie `/etc/psychoscope/` (inclui o `sensor.env`) e `/var/lib/psychoscope/alerts.db` (o `engine-state.json`, ao lado dele, é descartável: guarda IPs e domínios do tráfego, e perdê-lo só faz o beacon recomeçar) (SQLite em modo WAL; use
   `sqlite3 alerts.db ".backup alerts.bak"` com o serviço rodando).
 - **Desinstalar:** `psychoscope-update --uninstall` para o serviço e remove a unit e os binários, mantendo configuração e
-  alertas; com `--purge` apaga também `/etc/psychoscope`, `/var/lib/psychoscope` e o usuário (pede confirmação; `--yes`
-  dispensa). Passo a passo manual equivalente:
+  alertas; com `--purge` apaga também `/etc/psychoscope`, `/var/lib/psychoscope` e os usuários `psychoscope` e
+  `psychoscope-sensor` (pede confirmação; `--yes` dispensa). Passo a passo manual equivalente:
 
   ```bash
   sudo systemctl disable --now psychoscope
-  sudo rm /etc/systemd/system/psychoscope.service
+  sudo systemctl stop psychoscope-sensor
+  sudo rm /etc/systemd/system/psychoscope.service /etc/systemd/system/psychoscope-sensor.service
   sudo rm /usr/local/bin/psychoscope /usr/local/bin/psychoscope-cli /usr/local/bin/mod-net-sensor
   sudo systemctl daemon-reload
   ```
@@ -155,6 +172,7 @@ texto do Prometheus. Ele **não tem autenticação**: por isso só aceita endere
 
   ```bash
   sudo rm -r /etc/psychoscope /var/lib/psychoscope
+  sudo userdel psychoscope-sensor
   sudo userdel psychoscope
   ```
 
@@ -175,7 +193,9 @@ Comece por `psychoscope-cli doctor` (com `--sensor` para incluir o `--check` do 
 
 | Sintoma | Causa provável |
 |---|---|
-| `nao foi possivel iniciar a captura ... Operation not permitted` no log do sensor | `setcap` ausente, ou `NoNewPrivileges=yes` na unit |
+| `nao foi possivel iniciar a captura ... Operation not permitted` no log do sensor | o sensor não está rodando pela unit `psychoscope-sensor.service` (`AmbientCapabilities`): configuração antiga em que o Core o lança (`psychoscope-cli migrate-config`), ou unit antiga (reinstale) |
+| módulo `mod-net-sensor` em `INICIANDO` e o Core sem conexão | `systemctl status psychoscope-sensor` e `journalctl -u psychoscope-sensor`; se aparecer "nao autorizado" no log do Core, o `user` da configuração não é o usuário da unit |
+| `usuario "psychoscope-sensor" nao encontrado` na partida do Core | crie o usuário (o `install.sh` faz) ou ajuste o `user` do módulo |
 | `nao foi possivel iniciar a captura ... No such device` / `a interface 'eth0' nao existe` | o nome da interface em `args` não existe nesta máquina: rode `mod-net-sensor --list-interfaces` e ajuste `["-i", "<nome>"]` |
 | o sensor sobe, mas o Core não mostra eventos | rode `mod-net-sensor --check -i <interface>`: ele confere permissão, filtro BPF e se o Core está escutando, e diz o que corrigir; `--print` mostra os eventos sem o Core |
 | `analyze`: `nao encontrei o mod-net-sensor` | instale o sensor no `PATH` ou em `/usr/local/bin`, ou use `--sensor /caminho/mod-net-sensor` |

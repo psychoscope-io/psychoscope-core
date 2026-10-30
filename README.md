@@ -13,6 +13,8 @@ O que cada regra detecta, como investigar um alerta e como ajustar os falsos pos
   comandos com ACK/NACK síncronos e timeout, heartbeat (3 intervalos de silêncio derrubam a sessão).
 - **Supervisor** (`internal/supervisor`): `os/exec` com grupo de processos próprio e ambiente mínimo, restart com backoff exponencial,
   watchdog de conexão, parada graciosa `ENCERRAR → SIGTERM → SIGKILL`; só o PID do filho lançado pode assumir o `id_modulo`.
+  Um módulo `external` (o caso do sensor sob o systemd) não é lançado pelo Core: tem unit, usuário e capabilities próprios, e só se
+  autentica pelo UID do kernel (o do `user` configurado, nem root nem o do Core).
 - **Detecção** (`internal/detection`): janela deslizante em memória (tempo dos eventos, teto de eventos, índices por origem/destino),
   motor com fila não bloqueante, cooldown por chave e isolamento de panics de regras. Regras (`internal/detection/rules`):
 
@@ -193,7 +195,7 @@ Para montar o ambiente inteiro (clonar proto, core e sensor, atualizar e compila
 {
   "socket_mode": "0660",
   "modules": [
-    { "id": "mod-net-sensor", "path": "/usr/local/bin/mod-net-sensor", "args": ["-i", "eth0"], "stop_grace": "10s" }
+    { "id": "mod-net-sensor", "external": true, "user": "psychoscope-sensor" }
   ],
   "storage": { "enabled": true, "path": "/var/lib/psychoscope/alerts.db", "retention_days": 30, "max_alerts": 100000 },
   "engine_state_path": "/var/lib/psychoscope/engine-state.json",
@@ -219,6 +221,13 @@ se existir e for gravável (ex.: `RuntimeDirectory=` do systemd) ou root; senão
 mesma ideia: `/var/lib/psychoscope` (ex.: `StateDirectory=`), senão `$XDG_STATE_HOME/psychoscope` ou `~/.local/state/psychoscope`.
 `--allow-unmanaged` (dev) aceita módulos não lançados pelo supervisor (só checa UID).
 
+Módulos: `{ "id": "...", "path": "/caminho", "args": [...] }` é lançado e reiniciado pelo Core (desenvolvimento, `scripts/demo.sh`, testes);
+`{ "id": "...", "external": true, "user": "nome" }` é mantido pelo systemd e só conecta ao socket (instalação por `install.sh`: o sensor tem a
+unit `psychoscope-sensor.service`, com as capabilities de captura como ambientes; a interface fica em `/etc/psychoscope/sensor.env`). As duas
+formas são excludentes (`external` não aceita `path`, `args` nem `env`). Na partida, o usuário do módulo externo precisa existir.
+`psychoscope-cli migrate-config` converte uma configuração antiga (sensor lançado pelo Core) para a forma externa, com cópia da original; o
+`install.sh` o chama ao atualizar.
+
 ## Limitações conhecidas
 
 - O alerta usa o relógio de detecção do Core como `timestamp`; o instante do evento vai em `contexto["evento_ts"]`.
@@ -239,7 +248,8 @@ mesma ideia: `/var/lib/psychoscope` (ex.: `StateDirectory=`), senão `$XDG_STATE
 - Depende de `github.com/psychoscope-io/psychoscope-proto@v0.5.0`. Antes da publicação (ou offline): `source ../psychoscope-proto/scripts/local-deps.sh` resolve a dependência a partir do checkout local; para iterar no contrato sem criar tags, use um `go.work` (já ignorado pelo git).
 - `testdata/framing_vectors.json` é cópia de `psychoscope-proto/testdata/`.
 - `internal/testmod` é um módulo falso para testes (o binário de teste se re-executa como filho).
-- Testes do `install.sh` e do `get.sh` (instala, atualiza e desinstala; sem rede nem root): `./deploy/test_install.sh` e `./deploy/test_get.sh`. Testes entre repositórios (daemon + sensor reais, persistência, TUI em pty):
+- Testes do `install.sh` e do `get.sh` (instala, atualiza e desinstala; sem rede nem root): `./deploy/test_install.sh` e `./deploy/test_get.sh`. Em distribuições reais (Debian, Ubuntu, Fedora, com systemd, instalação, atualização e
+  remoção): `./deploy/test_distros.sh`, manual, com Docker e rede, fora do CI. Testes entre repositórios (daemon + sensor reais, persistência, TUI em pty):
   `mod-net-sensor/scripts/e2e.sh` e `scripts/live_smoke.sh`. Medição de carga: `go test -bench` em `internal/ipc`, `internal/detection/rules` e
   `internal/store` (leitura IPC, motor, beacon e gravação) e, no sensor, `scripts/bench_live.sh` e `scripts/bench_replay.sh`.
 - Releases: `make tag` (`scripts/tag.sh`) cria a tag anotada da próxima versão, só localmente; ao publicar a tag `vX.Y.Z`, `.github/workflows/release.yml` gera tarballs (amd64/arm64), o `get.sh`, `SHA256SUMS` e atestado de proveniência.
