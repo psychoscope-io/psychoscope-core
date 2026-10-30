@@ -148,6 +148,7 @@ type fnRule struct {
 }
 
 func (f fnRule) Name() string                                   { return f.name }
+func (f fnRule) Kind() Kind                                     { return KindNet }
 func (f fnRule) Eval(e *Event, w *Window) *psychoscopev1.Alerta { return f.fn(e, w) }
 
 type gatedRule struct {

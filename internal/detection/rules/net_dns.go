@@ -28,6 +28,7 @@ func NewNXDomainBurst(cfg NXDomainConfig) *NXDomainBurst {
 }
 
 func (r *NXDomainBurst) Name() string            { return NameDNSNXDomain }
+func (r *NXDomainBurst) Kind() detection.Kind    { return detection.KindNet }
 func (r *NXDomainBurst) Cooldown() time.Duration { return r.cfg.Cooldown }
 
 func isNX(ev *detection.Event) bool {
@@ -100,6 +101,7 @@ type DNSTunnel struct{ cfg TunnelConfig }
 func NewDNSTunnel(cfg TunnelConfig) *DNSTunnel { return &DNSTunnel{cfg} }
 
 func (r *DNSTunnel) Name() string            { return NameDNSTunnel }
+func (r *DNSTunnel) Kind() detection.Kind    { return detection.KindNet }
 func (r *DNSTunnel) Cooldown() time.Duration { return r.cfg.Cooldown }
 
 func (r *DNSTunnel) suspicious(domain string) (base string, ok bool) {
@@ -213,6 +215,7 @@ type DNSRate struct{ cfg DNSRateConfig }
 func NewDNSRate(cfg DNSRateConfig) *DNSRate { return &DNSRate{cfg} }
 
 func (r *DNSRate) Name() string            { return NameDNSRate }
+func (r *DNSRate) Kind() detection.Kind    { return detection.KindNet }
 func (r *DNSRate) Cooldown() time.Duration { return r.cfg.Cooldown }
 
 func isDNSQuery(ev *detection.Event) bool {

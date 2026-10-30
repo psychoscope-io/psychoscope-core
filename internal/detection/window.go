@@ -15,8 +15,9 @@ type Window struct {
 	head int
 	now  time.Time // maior At visto
 
-	bySrc map[string]*keyQueue
-	byDst map[string]*keyQueue
+	bySrc  map[string]*keyQueue // eventos de rede, por IP de origem
+	byDst  map[string]*keyQueue // eventos de rede, por IP de destino
+	byType map[string]*keyQueue // eventos genericos, por tipo
 }
 
 type keyQueue struct {
@@ -28,7 +29,7 @@ func (k *keyQueue) len() int { return len(k.evs) - k.head }
 
 // NewWindow cria uma janela de duracao span e capacidade max eventos.
 func NewWindow(span time.Duration, max int) *Window {
-	return &Window{span: span, max: max, bySrc: map[string]*keyQueue{}, byDst: map[string]*keyQueue{}}
+	return &Window{span: span, max: max, bySrc: map[string]*keyQueue{}, byDst: map[string]*keyQueue{}, byType: map[string]*keyQueue{}}
 }
 
 // Now devolve o relogio da janela (maior instante de evento ja visto).
@@ -54,6 +55,10 @@ func (w *Window) FromSrc(ip string) []*Event { return view(w.bySrc[ip]) }
 // ToDst devolve, em ordem de chegada, os eventos retidos cujo destino e ip.
 func (w *Window) ToDst(ip string) []*Event { return view(w.byDst[ip]) }
 
+// OfType devolve, em ordem de chegada, os eventos genericos retidos do tipo dado.
+// A fatia e somente leitura e so e valida ate o proximo Add.
+func (w *Window) OfType(tipo string) []*Event { return view(w.byType[tipo]) }
+
 func view(k *keyQueue) []*Event {
 	if k == nil {
 		return nil
@@ -69,12 +74,32 @@ func (w *Window) Add(e *Event) {
 		return
 	}
 	w.q = append(w.q, e)
-	push(w.bySrc, e.Net.GetIpOrigem(), e)
-	push(w.byDst, e.Net.GetIpDestino(), e)
+	w.index(e)
 	if e.At.After(w.now) {
 		w.now = e.At
 	}
 	w.evict()
+}
+
+// index e unindex mantem os indices por chave da variante do evento.
+func (w *Window) index(e *Event) {
+	switch e.Kind() {
+	case KindNet:
+		push(w.bySrc, e.Net.GetIpOrigem(), e)
+		push(w.byDst, e.Net.GetIpDestino(), e)
+	case KindGeneric:
+		push(w.byType, e.Generic.GetTipo(), e)
+	}
+}
+
+func (w *Window) unindex(e *Event) {
+	switch e.Kind() {
+	case KindNet:
+		pop(w.bySrc, e.Net.GetIpOrigem(), e)
+		pop(w.byDst, e.Net.GetIpDestino(), e)
+	case KindGeneric:
+		pop(w.byType, e.Generic.GetTipo(), e)
+	}
 }
 
 func push(m map[string]*keyQueue, key string, e *Event) {
@@ -95,8 +120,7 @@ func (w *Window) evict() {
 		}
 		w.q[w.head] = nil
 		w.head++
-		pop(w.bySrc, front.Net.GetIpOrigem(), front)
-		pop(w.byDst, front.Net.GetIpDestino(), front)
+		w.unindex(front)
 	}
 	if w.head > 1024 && w.head*2 > len(w.q) {
 		w.q = append([]*Event(nil), w.q[w.head:]...)

@@ -30,6 +30,7 @@ func NewBruteForce(cfg BruteForceConfig) *BruteForce {
 }
 
 func (r *BruteForce) Name() string            { return NameBruteForce }
+func (r *BruteForce) Kind() detection.Kind    { return detection.KindNet }
 func (r *BruteForce) Cooldown() time.Duration { return r.cfg.Cooldown }
 
 func (r *BruteForce) Key(ev *detection.Event) (string, bool) {

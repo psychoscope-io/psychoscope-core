@@ -10,9 +10,12 @@ import (
 
 // Rule e uma regra analitica. Eval e chamada para cada evento DEPOIS de ele entrar na
 // janela e devolve um alerta, ou nil. Deve ser rapida e nao pode reter `w` nem as
-// fatias que ele devolve.
+// fatias que ele devolve. Kind declara a variante de evento que a regra consome: o motor so
+// lhe entrega eventos dessa variante, entao Eval e Key podem ler o campo correspondente sem
+// conferir.
 type Rule interface {
 	Name() string
+	Kind() Kind
 	Eval(ev *Event, w *Window) *psychoscopev1.Alerta
 }
 

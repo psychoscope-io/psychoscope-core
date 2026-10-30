@@ -31,6 +31,7 @@ const answerGrace = time.Second
 func NewScanSYN(cfg ScanConfig) *ScanSYN { return &ScanSYN{cfg} }
 
 func (r *ScanSYN) Name() string            { return NameScanSYN }
+func (r *ScanSYN) Kind() detection.Kind    { return detection.KindNet }
 func (r *ScanSYN) Cooldown() time.Duration { return r.cfg.Cooldown }
 
 func (r *ScanSYN) Key(ev *detection.Event) (string, bool) {

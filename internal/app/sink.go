@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"log/slog"
 	"sync/atomic"
 
@@ -22,7 +23,12 @@ func (t *telemetrySink) OnTelemetry(s *ipc.Session, ev *psychoscopev1.EventoTele
 	if n := t.events.Add(1); n%1000 == 1 {
 		t.log.Debug("telemetria recebida", "modulo", s.ID, "total", n)
 	}
-	if rede := ev.GetRede(); rede != nil {
-		t.engine.Submit(s.ID, rede)
+	switch d := ev.GetDado().(type) {
+	case *psychoscopev1.EventoTelemetria_Rede:
+		t.engine.Submit(s.ID, d.Rede)
+	case *psychoscopev1.EventoTelemetria_Generico:
+		if err := t.engine.SubmitGeneric(s.ID, d.Generico); errors.Is(err, detection.ErrInvalidGeneric) {
+			t.log.Debug("evento generico rejeitado", "modulo", s.ID, "erro", err)
+		}
 	}
 }

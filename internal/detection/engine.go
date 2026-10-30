@@ -2,6 +2,7 @@ package detection
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -29,6 +30,7 @@ type EngineConfig struct {
 type Stats struct {
 	Received   uint64 // aceitos na fila
 	Dropped    uint64 // descartados por fila cheia
+	Rejected   uint64 // eventos genericos fora dos limites do contrato
 	Processed  uint64
 	Alerts     uint64
 	Suppressed uint64 // alertas evitados pelo cooldown
@@ -55,8 +57,8 @@ type Engine struct {
 	reconf   chan reconfig             // pedidos de Reconfigure, tratados dentro de Run
 	snap     chan snapshotRequest      // pedidos de Snapshot, tratados dentro de Run
 
-	received, dropped, processed, alerts, suppressed, ruleErrors atomic.Uint64
-	windowLen                                                    atomic.Int64
+	received, dropped, rejected, processed, alerts, suppressed, ruleErrors atomic.Uint64
+	windowLen                                                              atomic.Int64
 }
 
 // NewEngine cria o motor (ainda parado; chame Run).
@@ -124,7 +126,28 @@ func (e *Engine) reconfigure(rc reconfig) {
 // Submit enfileira um evento de rede sem nunca bloquear (chamado na goroutine de leitura
 // da sessao IPC). Devolve false se a fila estava cheia e o evento foi descartado.
 func (e *Engine) Submit(module string, n *psychoscopev1.EventoFluxoRede) bool {
-	ev := NewEvent(module, n, time.Now())
+	return e.enqueue(NewEvent(module, n, time.Now()))
+}
+
+// ErrQueueFull indica que a fila de entrada do motor estava cheia e o evento foi descartado.
+var ErrQueueFull = errors.New("fila de entrada do motor cheia")
+
+// SubmitGeneric enfileira um evento generico sem nunca bloquear. Devolve ErrInvalidGeneric
+// (embrulhado, com o motivo) se o evento violar os limites do contrato, caso em que e contado
+// como rejeitado, e ErrQueueFull se a fila estava cheia.
+func (e *Engine) SubmitGeneric(module string, g *psychoscopev1.EventoGenerico) error {
+	ev, err := NewGenericEvent(module, g, time.Now())
+	if err != nil {
+		e.rejected.Add(1)
+		return err
+	}
+	if !e.enqueue(ev) {
+		return ErrQueueFull
+	}
+	return nil
+}
+
+func (e *Engine) enqueue(ev *Event) bool {
 	select {
 	case e.in <- ev:
 		e.received.Add(1)
@@ -152,7 +175,7 @@ func (e *Engine) SubmitWait(ctx context.Context, module string, n *psychoscopev1
 // Stats devolve um retrato dos contadores.
 func (e *Engine) Stats() Stats {
 	return Stats{
-		Received: e.received.Load(), Dropped: e.dropped.Load(), Processed: e.processed.Load(),
+		Received: e.received.Load(), Dropped: e.dropped.Load(), Rejected: e.rejected.Load(), Processed: e.processed.Load(),
 		Alerts: e.alerts.Load(), Suppressed: e.suppressed.Load(), RuleErrors: e.ruleErrors.Load(),
 		Window: int(e.windowLen.Load()),
 	}
@@ -185,8 +208,11 @@ func (e *Engine) process(ev *Event) {
 	e.window.Add(ev)
 	e.windowLen.Store(int64(e.window.Len()))
 	e.processed.Add(1)
+	kind := ev.Kind()
 	for _, r := range e.rules {
-		e.evalRule(r, ev)
+		if r.Kind() == kind {
+			e.evalRule(r, ev)
+		}
 	}
 	if len(e.cooldown) > max(e.purgeAt, cooldownPurgeMin) {
 		e.purgeCooldowns()

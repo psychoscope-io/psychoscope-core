@@ -21,6 +21,7 @@ type ICMPSweep struct{ cfg ICMPSweepConfig }
 func NewICMPSweep(cfg ICMPSweepConfig) *ICMPSweep { return &ICMPSweep{cfg} }
 
 func (r *ICMPSweep) Name() string            { return NameICMPSweep }
+func (r *ICMPSweep) Kind() detection.Kind    { return detection.KindNet }
 func (r *ICMPSweep) Cooldown() time.Duration { return r.cfg.Cooldown }
 
 // isEchoRequest: tipo 8 (ICMPv4) ou 128 (ICMPv6; versao inferida pelo ':' no IP de origem).

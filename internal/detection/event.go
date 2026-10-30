@@ -3,9 +3,13 @@
 package detection
 
 import (
+	"errors"
+	"fmt"
+	"regexp"
 	"time"
 
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // Flags TCP do campo EventoFluxoRede.flags_tcp.
@@ -18,23 +22,87 @@ const (
 	FlagURG uint32 = 0x20
 )
 
-// Event e um evento de fluxo de rede normalizado para o motor.
+// Kind e a variante de um Event; cada regra declara a que consome (Rule.Kind).
+type Kind int
+
+const (
+	// KindNet e o evento de fluxo de rede (EventoFluxoRede).
+	KindNet Kind = iota + 1
+	// KindGeneric e o evento generico de um modulo sem variante propria (EventoGenerico).
+	KindGeneric
+)
+
+// Event e um evento de um modulo normalizado para o motor. Exatamente um dos campos de variante
+// esta preenchido, o que Kind informa; os demais sao nil.
 type Event struct {
 	Module string
-	// At e o instante de captura informado pelo sensor (ou o de chegada, se ausente).
+	// At e o instante informado pelo modulo (ou o de chegada, se ausente).
 	// O relogio da janela segue os instantes dos eventos, nao o relogio do sistema:
 	// replays de pcap antigos se comportam exatamente como trafego ao vivo.
-	At  time.Time
-	Net *psychoscopev1.EventoFluxoRede
+	At      time.Time
+	Net     *psychoscopev1.EventoFluxoRede
+	Generic *psychoscopev1.EventoGenerico
+}
+
+// Kind devolve a variante do evento.
+func (e *Event) Kind() Kind {
+	if e.Generic != nil {
+		return KindGeneric
+	}
+	return KindNet
 }
 
 // NewEvent normaliza um EventoFluxoRede. arrival e usado quando o sensor nao informou timestamp.
 func NewEvent(module string, n *psychoscopev1.EventoFluxoRede, arrival time.Time) *Event {
-	at := arrival
-	if ts := n.GetTimestampCaptura(); ts != nil && (ts.Seconds != 0 || ts.Nanos != 0) {
-		at = ts.AsTime()
+	return &Event{Module: module, At: instant(n.GetTimestampCaptura(), arrival), Net: n}
+}
+
+// Limites do EventoGenerico (documentados no ipc.proto).
+const (
+	maxGenericAttrs     = 32
+	maxGenericNameLen   = 64
+	maxGenericValueSize = 256
+)
+
+var genericNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
+// ErrInvalidGeneric indica um EventoGenerico fora dos limites do contrato.
+var ErrInvalidGeneric = errors.New("evento generico invalido")
+
+// NewGenericEvent normaliza um EventoGenerico depois de conferir os limites do contrato (tipo e
+// chaves em [a-z0-9._-] de ate 64 caracteres, ate 32 atributos, valores de ate 256 bytes).
+// Devolve ErrInvalidGeneric (embrulhado, com o motivo) se algum for violado.
+func NewGenericEvent(module string, g *psychoscopev1.EventoGenerico, arrival time.Time) (*Event, error) {
+	if err := validateGeneric(g); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidGeneric, err)
 	}
-	return &Event{Module: module, At: at, Net: n}
+	return &Event{Module: module, At: instant(g.GetTimestamp(), arrival), Generic: g}, nil
+}
+
+func validateGeneric(g *psychoscopev1.EventoGenerico) error {
+	if !genericNameRe.MatchString(g.GetTipo()) {
+		return fmt.Errorf("tipo %q fora de [a-z0-9._-] com ate %d caracteres", g.GetTipo(), maxGenericNameLen)
+	}
+	if n := len(g.GetAtributos()); n > maxGenericAttrs {
+		return fmt.Errorf("%d atributos (maximo %d)", n, maxGenericAttrs)
+	}
+	for k, v := range g.GetAtributos() {
+		if !genericNameRe.MatchString(k) {
+			return fmt.Errorf("chave de atributo %q fora de [a-z0-9._-] com ate %d caracteres", k, maxGenericNameLen)
+		}
+		if len(v) > maxGenericValueSize {
+			return fmt.Errorf("valor do atributo %q com %d bytes (maximo %d)", k, len(v), maxGenericValueSize)
+		}
+	}
+	return nil
+}
+
+// instant devolve o instante de ts, ou arrival se ts for ausente ou zero.
+func instant(ts *timestamppb.Timestamp, arrival time.Time) time.Time {
+	if ts != nil && (ts.Seconds != 0 || ts.Nanos != 0) {
+		return ts.AsTime()
+	}
+	return arrival
 }
 
 // DNS devolve os metadados DNS do evento (nil se nao for DNS).

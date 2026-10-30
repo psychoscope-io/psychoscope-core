@@ -32,6 +32,7 @@ func NewTLSSuspicious(cfg TLSConfig) *TLSSuspicious {
 }
 
 func (r *TLSSuspicious) Name() string            { return NameTLSSuspicious }
+func (r *TLSSuspicious) Kind() detection.Kind    { return detection.KindNet }
 func (r *TLSSuspicious) Cooldown() time.Duration { return r.cfg.Cooldown }
 
 // classify devolve o motivo de maior prioridade para o evento TLS ("" = nada suspeito).

@@ -39,6 +39,7 @@ func engineMetrics(es detection.Stats) []*psychoscopev1.Metrica {
 	return []*psychoscopev1.Metrica{
 		metrics.Counter("psychoscope_engine_events_received_total", "Eventos aceitos na fila do motor de deteccao.", float64(es.Received)),
 		metrics.Counter("psychoscope_engine_events_dropped_total", "Eventos descartados por fila cheia.", float64(es.Dropped)),
+		metrics.Counter("psychoscope_engine_events_rejected_total", "Eventos genericos rejeitados por violar os limites do contrato.", float64(es.Rejected)),
 		metrics.Counter("psychoscope_engine_events_processed_total", "Eventos processados pelo motor.", float64(es.Processed)),
 		metrics.Counter("psychoscope_engine_alerts_total", "Alertas gerados.", float64(es.Alerts)),
 		metrics.Counter("psychoscope_engine_alerts_suppressed_total", "Alertas evitados pelo cooldown.", float64(es.Suppressed)),

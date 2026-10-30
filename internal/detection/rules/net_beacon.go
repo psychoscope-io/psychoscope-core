@@ -53,7 +53,8 @@ func NewBeacon(cfg BeaconConfig) *Beacon {
 	return b
 }
 
-func (r *Beacon) Name() string { return NameBeacon }
+func (r *Beacon) Name() string         { return NameBeacon }
+func (r *Beacon) Kind() detection.Kind { return detection.KindNet }
 
 // classify devolve a chave da serie, o tipo ("tcp"/"dns") e o alvo legivel.
 func (r *Beacon) classify(ev *detection.Event) (key, kind, target string, ok bool) {
