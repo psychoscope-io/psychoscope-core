@@ -314,7 +314,11 @@ func TestRunCancelStopsAllModules(t *testing.T) {
 
 func TestAuthorizePolicy(t *testing.T) {
 	e := setup(t, false, spec("mod-a", "PSY_NOCONNECT=1"))
-	e.waitState(t, "mod-a", psychoscopev1.EstadoModulo_ESTADO_INICIANDO)
+	// o estado INICIANDO vem antes de o PID do filho ser registrado: espera pelos dois
+	eventually(t, 10*time.Second, "filho lancado, sem conexao", func() bool {
+		i, _ := e.sup.Get("mod-a")
+		return i.State == psychoscopev1.EstadoModulo_ESTADO_INICIANDO && i.PID != 0
+	})
 	child, _ := e.sup.Get("mod-a")
 	uid := uint32(os.Geteuid())
 	h := func(id string) *psychoscopev1.HelloModulo { return &psychoscopev1.HelloModulo{IdModulo: id} }
