@@ -73,14 +73,14 @@ dockerfile() { # imagem-base
     fedora*)
       cat <<EOF
 FROM $1
-RUN dnf -y -q install systemd curl sudo libpcap libcap iproute procps-ng shadow-utils util-linux && dnf clean all
+RUN dnf -y -q install systemd curl sudo libcap iproute procps-ng shadow-utils util-linux && dnf clean all
 EOF
       ;;
     *)
       cat <<EOF
 FROM $1
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends systemd systemd-sysv dbus curl ca-certificates sudo libpcap0.8 libcap2-bin iproute2 procps && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends systemd systemd-sysv dbus curl ca-certificates sudo libcap2-bin iproute2 procps && rm -rf /var/lib/apt/lists/*
 EOF
       ;;
   esac
@@ -169,7 +169,7 @@ run_distro() {
   fi
   echo "  ok: get.sh"
   check "binarios instalados e executaveis" 'for b in psychoscope psychoscope-cli mod-net-sensor; do test -x /usr/local/bin/$b || exit 1; done; test -x /usr/local/sbin/psychoscope-update'
-  check "libpcap resolvida (ldd sem 'not found')" '! ldd /usr/local/bin/mod-net-sensor | grep "not found"'
+  check "sensor sem dependencia de libpcap (a imagem nao a instala) e sem biblioteca faltando" '! ldd /usr/local/bin/mod-net-sensor | grep -E "not found|libpcap"'
   check "sensor executa (--version)" '/usr/local/bin/mod-net-sensor --version'
   check "usuario psychoscope existe" 'getent passwd psychoscope'
   check "configuracao 640 e diretorio 750" '[ "$(stat -c %a /etc/psychoscope/psychoscope.json)" = 640 ] && [ "$(stat -c %a /etc/psychoscope)" = 750 ]'

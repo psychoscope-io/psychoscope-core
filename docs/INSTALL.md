@@ -1,7 +1,7 @@
 # Instalação
 
 Linux (x86_64 ou arm64) com systemd. O Core é um binário estático em Go; o sensor de rede (`mod-net-sensor`)
-traz o libpcap embutido a partir da v0.3.1 (nas versões anteriores, instale `libpcap0.8` no Debian e no Ubuntu).
+traz o libpcap embutido a partir da v0.3.1 (nas versões anteriores, instale `libpcap0.8` no Debian e no Ubuntu). O libpcap embutido é mínimo: captura em interface comum, em modo promíscuo, mas sem modo monitor Wi-Fi nem interfaces especiais (dbus, Bluetooth, USB, RDMA, netmap).
 
 ## Instalação rápida (recomendada)
 
