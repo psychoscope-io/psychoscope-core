@@ -400,3 +400,24 @@ func TestDoctorSensorExternalIsNotCheckedAndLaunchedSensorWarns(t *testing.T) {
 		t.Errorf("sensor lancado pelo Core deve apontar a migracao (so aviso), err=%v\n%s", err, out)
 	}
 }
+
+func TestModuleLossMeasuresAgainstEventsForModulesWithoutPackets(t *testing.T) {
+	mod := func(events, dropped uint64) *psychoscopev1.ModuloInfo {
+		return &psychoscopev1.ModuloInfo{IdModulo: "mod-login", Estado: psychoscopev1.EstadoModulo_ESTADO_CONECTADO,
+			UltimoStatus: &psychoscopev1.StatusModulo{EventosProcessados: events, PacotesDescartados: dropped}}
+	}
+	f, ok := moduleLoss(mod(500, 0))
+	if !ok || f.Level != levelOK || !strings.Contains(f.Detail, "nenhuma (500 eventos enviados)") {
+		t.Errorf("sem perda: %v %q", f.Level, f.Detail)
+	}
+	f, _ = moduleLoss(mod(1000, 50))
+	if f.Level != levelFail || !strings.Contains(f.Detail, "50 descartes em 1000 eventos (5.00%)") {
+		t.Errorf("5%% de perda: %v %q", f.Level, f.Detail)
+	}
+	if f, _ = moduleLoss(mod(1000, 5)); f.Level != levelWarn {
+		t.Errorf("0,5%% de perda deve ser aviso: %v", f.Level)
+	}
+	if strings.Contains(f.Detail, "pacotes") {
+		t.Errorf("modulo sem pacotes nao deve falar de pacotes: %q", f.Detail)
+	}
+}

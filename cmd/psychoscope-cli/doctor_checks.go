@@ -162,11 +162,12 @@ func moduleLoss(m *psychoscopev1.ModuloInfo) (finding, bool) {
 	}
 	f := finding{Item: "perdas do modulo " + m.GetIdModulo()}
 	losses := ctl.Losses(st)
+	total, unit, sent := lossBasis(st)
 	if len(losses) == 0 && st.GetPacotesDescartados() == 0 {
-		f.Detail = fmt.Sprintf("nenhuma (%d pacotes capturados)", st.GetPacotesCapturados())
+		f.Detail = fmt.Sprintf("nenhuma (%d %s)", total, sent)
 		return f, true
 	}
-	ratio := float64(st.GetPacotesDescartados()) / float64(max(st.GetPacotesCapturados(), 1))
+	ratio := float64(st.GetPacotesDescartados()) / float64(max(total, 1))
 	f.Level = levelWarn
 	if ratio >= lossFailRatio {
 		f.Level = levelFail
@@ -175,12 +176,22 @@ func moduleLoss(m *psychoscopev1.ModuloInfo) (finding, bool) {
 	for _, c := range losses {
 		parts = append(parts, fmt.Sprintf("%s: %d", strings.ToLower(c.Label), c.Value))
 	}
-	f.Detail = fmt.Sprintf("%d descartes em %d pacotes (%.2f%%) desde que o modulo subiu", st.GetPacotesDescartados(), st.GetPacotesCapturados(), ratio*100)
+	f.Detail = fmt.Sprintf("%d descartes em %d %s (%.2f%%) desde que o modulo subiu", st.GetPacotesDescartados(), total, unit, ratio*100)
 	if len(parts) > 0 {
 		f.Detail += " [" + strings.Join(parts, ", ") + "]"
 	}
 	f.Fix = lossFix(st)
 	return f, true
+}
+
+// lossBasis escolhe contra o que medir a perda: os pacotes capturados, para um modulo de rede, ou os
+// eventos enviados, para o que nao captura pacotes. Devolve o total, o plural da unidade e a
+// descricao usada quando nao ha perda.
+func lossBasis(st *psychoscopev1.StatusModulo) (total uint64, unit, sent string) {
+	if st.GetPacotesCapturados() > 0 {
+		return st.GetPacotesCapturados(), "pacotes", "pacotes capturados"
+	}
+	return st.GetEventosProcessados(), "eventos", "eventos enviados"
 }
 
 func lossFix(st *psychoscopev1.StatusModulo) string {
