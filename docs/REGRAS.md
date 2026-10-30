@@ -16,7 +16,7 @@ Sobre os falsos positivos: cada seção separa o que **já foi visto em máquina
 
 | Quero... | Como |
 |---|---|
-| Ignorar o que causou este alerta | `i` na tela de detalhe (só para regras com lista de exceção: `net.beacon`, `net.bruteforce.auth`, `net.dns.tunnel` e `net.tls.suspicious` por entropia do SNI); `u` desfaz |
+| Ignorar o que causou este alerta | `i` na tela de detalhe (só para regras com lista de exceção: `net.beacon`, `net.bruteforce.auth`, `net.dns.tunnel`, `net.tls.suspicious` por entropia do SNI e `generic.burst` com um único atributo em `group_by`); `u` desfaz |
 | Mudar um limiar | `:config` na TUI, ou `psychoscope-cli config set detection.<seção>.<campo>=<valor>` (como root) |
 | Voltar ao valor anterior | `d` na tela de configurações, ou `psychoscope-cli config reset detection.<seção>.<campo>` |
 | Desligar uma regra | `psychoscope-cli config set detection.disabled=net.dns.rate` (lista de nomes de regra) |
@@ -225,3 +225,29 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 **Como ajustar.** É a regra com mais opções: `ignore_destinations` (IPs ou CIDRs de destino TCP), `ignore_domains` (nome exato ou sufixo), `ignore_ports`. A tecla `i` do alerta sugere o destino ou o domínio. Prefira o nome (`ignore_domains`) ao IP: IPs de nuvem e CDN são compartilhados, e ignorar um deles libera tudo o que estiver ali; use `ignore_destinations` com o IP isolado (/32) só quando não houver nome. Para tornar a regra mais exigente: subir `min_samples` ou baixar `max_cv`.
 
 **Estado entre reinícios.** As séries e os cooldowns do beacon são gravados em `engine-state.json` (veja [Estado do motor](../README.md#estado-do-motor-entre-reinícios)) e restaurados na partida, então reiniciar o Core não faz um beacon já visto alertar de novo nem o faz recomeçar a contagem dos 8 contatos. As séries só são restauradas se o `min_interval` não mudou, e a regra recomeça vazia se um limiar dela foi editado entre duas partidas. O estado guarda no máximo as 30 mil séries mais recentes. Uma queda abrupta perde no máximo os últimos 60 s de estado.
+
+---
+
+## `generic.burst`: rajada de eventos genéricos
+
+**Severidade:** MÉDIA. **Seção:** `detection.generic_burst`.
+
+**O que detecta.** Um módulo que envia muitos eventos genéricos do mesmo tipo (o campo `tipo` do `EventoGenerico`, ver [EVENTOS-GENERICOS.md](EVENTOS-GENERICOS.md)) na janela. É a regra de uso geral para módulos que ainda não têm regra própria. Ela é **opt-in**: só vigia os tipos listados em `types`, e com a lista vazia (o padrão) não faz nada. Com `group_by`, cada combinação dos valores dos atributos listados é contada à parte (por exemplo, `usuario`: dez falhas de login de uma conta, e não dez falhas somadas de contas diferentes).
+
+**Por que importa.** Uma rajada de um mesmo evento costuma ser o sinal de algo que o módulo observa: tentativas de login que falham, acessos negados, erros repetidos. O Core não sabe o que o tipo significa; quem escolhe o que vigiar é o operador, que conhece o módulo.
+
+**Padrões.** `types` vazio (inativa); `group_by` vazio; ≥10 eventos do mesmo módulo, tipo e grupo; janela 1 min; cooldown 5 min.
+
+**Técnica MITRE ATT&CK.** Sem técnica equivalente: o tipo do evento é definido por cada módulo, então a regra não tem como saber qual comportamento a rajada representa.
+
+**Contexto do alerta.** `modulo`, `evento_tipo`, `ocorrencias`, `janela` e, com `group_by`, `grupo` (`atributo=valor, ...`) e, com um único atributo, `grupo_valor`.
+
+**O que investigar.** O que o módulo registra com esse tipo de evento e de onde vem a rajada (o grupo, se houver). Compare com o que o módulo faz em condições normais: um lote, uma reinicialização ou um teste podem gerar a mesma rajada.
+
+**Falsos positivos esperados (ainda não observados).**
+- Rajadas legítimas do próprio módulo: sincronização inicial, reprocessamento de fila, execução de testes de carga.
+- Contas de serviço ou automações que falham em ciclos previsíveis (uma credencial expirada, por exemplo).
+
+**Como ajustar.** Escolha os tipos (`types`) e o agrupamento (`group_by`) que fazem sentido para o módulo; suba `min_events` ou a `window` para tolerar rajadas maiores. Para ignorar uma conta ou origem conhecida, `ignore_groups` aceita os valores dos atributos de `group_by`; com um único atributo, a tecla `i` do alerta sugere o valor. A contagem examina só os eventos retidos na janela do motor (`detection.window`), então uma `window` maior que ela não vale.
+
+---

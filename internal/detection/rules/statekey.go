@@ -26,7 +26,7 @@ func stateKey(cfg any) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// As oito regras implementam detection.StateKeyed (um teste cobra toda regra nova).
+// Toda regra implementa detection.StateKeyed (um teste cobra toda regra nova).
 
 func (r *ScanSYN) StateKey() string       { return stateKey(r.cfg) }
 func (r *NXDomainBurst) StateKey() string { return stateKey(r.cfg) }
@@ -36,3 +36,4 @@ func (r *TLSSuspicious) StateKey() string { return stateKey(r.cfg) }
 func (r *Beacon) StateKey() string        { return stateKey(r.cfg) }
 func (r *BruteForce) StateKey() string    { return stateKey(r.cfg) }
 func (r *ICMPSweep) StateKey() string     { return stateKey(r.cfg) }
+func (r *GenericBurst) StateKey() string  { return stateKey(r.cfg) }

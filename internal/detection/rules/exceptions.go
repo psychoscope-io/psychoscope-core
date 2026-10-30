@@ -14,6 +14,7 @@ const (
 	FieldBruteForceIgnoreSources  = "detection.bruteforce.ignore_sources"
 	FieldTunnelAllowedBases       = "detection.tunnel.allowed_bases"
 	FieldTLSAllowedBases          = "detection.tls.allowed_bases"
+	FieldGenericBurstIgnoreGroups = "detection.generic_burst.ignore_groups"
 )
 
 // Exception diz qual campo de configuracao, e qual valor a acrescentar a ele, faz a regra
@@ -45,6 +46,11 @@ func Exception(a *psychoscopev1.Alerta) (field, value string, ok bool) {
 	case NameBruteForce:
 		if src := ctx["origem"]; net.ParseIP(src) != nil {
 			return FieldBruteForceIgnoreSources, src, true
+		}
+	case NameGenericBurst:
+		// So com um atributo em group_by o valor do grupo e um item inequivoco de ignore_groups.
+		if v := ctx["grupo_valor"]; v != "" {
+			return FieldGenericBurstIgnoreGroups, v, true
 		}
 	case NameDNSTunnel:
 		if base := ctx["dominio_base"]; base != "" {

@@ -4,6 +4,7 @@ package rules
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ const (
 	NameBeacon        = "net.beacon"
 	NameBruteForce    = "net.bruteforce.auth"
 	NameICMPSweep     = "net.icmp.sweep"
+	NameGenericBurst  = "generic.burst"
 )
 
 // As tags `json` definem as chaves aceitas na secao "detection" do arquivo de configuracao
@@ -106,17 +108,29 @@ type ICMPSweepConfig struct {
 	Cooldown time.Duration `json:"cooldown" keepstate:"true" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para a mesma origem."`
 }
 
+// GenericBurstConfig parametriza generic.burst, a regra de uso geral para eventos genericos de
+// modulos sem regra propria. Sem Types a regra fica inativa: so dispara para o que o operador pede.
+type GenericBurstConfig struct {
+	Types        []string      `json:"types" keepstate:"true" label:"Tipos de evento vigiados" doc:"Tipos de evento genérico (o campo tipo) vigiados pela regra. Lista vazia deixa a regra inativa."`
+	GroupBy      []string      `json:"group_by" label:"Atributos que separam grupos" doc:"Atributos do evento que separam os grupos contados (por exemplo usuario). Vazio conta todos os eventos do tipo juntos."`
+	MinEvents    int           `json:"min_events" label:"Eventos mínimos" doc:"Eventos do mesmo módulo, tipo e grupo na janela para alertar."`
+	Window       time.Duration `json:"window" label:"Janela de contagem" doc:"Janela em que os eventos são contados."`
+	Cooldown     time.Duration `json:"cooldown" keepstate:"true" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para o mesmo módulo, tipo e grupo."`
+	IgnoreGroups []string      `json:"ignore_groups" keepstate:"true" label:"Grupos ignorados" doc:"Valores dos atributos de group_by isentos (uma conta de serviço, por exemplo): um evento com algum desses valores não conta."`
+}
+
 // Config reune os limiares de todas as regras.
 type Config struct {
-	Disabled   []string
-	Scan       ScanConfig
-	NXDomain   NXDomainConfig
-	Tunnel     TunnelConfig
-	DNSRate    DNSRateConfig
-	TLS        TLSConfig
-	Beacon     BeaconConfig
-	BruteForce BruteForceConfig
-	ICMPSweep  ICMPSweepConfig
+	Disabled     []string
+	Scan         ScanConfig
+	NXDomain     NXDomainConfig
+	Tunnel       TunnelConfig
+	DNSRate      DNSRateConfig
+	TLS          TLSConfig
+	Beacon       BeaconConfig
+	BruteForce   BruteForceConfig
+	ICMPSweep    ICMPSweepConfig
+	GenericBurst GenericBurstConfig
 }
 
 // Default devolve limiares conservadores.
@@ -133,7 +147,8 @@ func Default() Config {
 			MaxKeys: 50_000, Cooldown: 30 * time.Minute},
 		BruteForce: BruteForceConfig{Window: 30 * time.Second, MinAttempts: 10, Ports: []int{21, 22, 23, 445, 3389, 5900},
 			Cooldown: 5 * time.Minute},
-		ICMPSweep: ICMPSweepConfig{Window: 10 * time.Second, MinHosts: 20, Cooldown: time.Minute},
+		ICMPSweep:    ICMPSweepConfig{Window: 10 * time.Second, MinHosts: 20, Cooldown: time.Minute},
+		GenericBurst: GenericBurstConfig{MinEvents: 10, Window: time.Minute, Cooldown: 5 * time.Minute},
 	}
 }
 
@@ -143,6 +158,7 @@ func (c *Config) Sections() map[string]any {
 	return map[string]any{
 		"scan": &c.Scan, "nxdomain": &c.NXDomain, "tunnel": &c.Tunnel, "dns_rate": &c.DNSRate,
 		"tls": &c.TLS, "beacon": &c.Beacon, "bruteforce": &c.BruteForce, "icmp_sweep": &c.ICMPSweep,
+		"generic_burst": &c.GenericBurst,
 	}
 }
 
@@ -150,7 +166,7 @@ func (c *Config) Sections() map[string]any {
 // motor; detection.window precisa cobri-la. (Beacon tem estado proprio e nao entra.)
 func (c Config) LongestWindow() time.Duration {
 	return max(c.Scan.Window, c.NXDomain.Window, c.Tunnel.Window, c.DNSRate.Window,
-		c.TLS.MissingSNIWindow, c.BruteForce.Window, c.ICMPSweep.Window)
+		c.TLS.MissingSNIWindow, c.BruteForce.Window, c.ICMPSweep.Window, c.GenericBurst.Window)
 }
 
 // Validate verifica a coerencia dos limiares e dos nomes desabilitados.
@@ -170,6 +186,9 @@ func (c Config) Validate() error {
 		return err
 	}
 	if err := c.TLS.validate(); err != nil {
+		return err
+	}
+	if err := c.GenericBurst.validate(); err != nil {
 		return err
 	}
 	return c.BruteForce.validate()
@@ -226,6 +245,7 @@ func (c Config) validatePositive() error {
 		"beacon.min_interval": c.Beacon.MinInterval > 0, "beacon.cooldown": c.Beacon.Cooldown > 0,
 		"bruteforce.window": c.BruteForce.Window > 0, "bruteforce.min_attempts": c.BruteForce.MinAttempts > 0, "bruteforce.cooldown": c.BruteForce.Cooldown > 0,
 		"icmp_sweep.window": c.ICMPSweep.Window > 0, "icmp_sweep.min_hosts": c.ICMPSweep.MinHosts > 0, "icmp_sweep.cooldown": c.ICMPSweep.Cooldown > 0,
+		"generic_burst.min_events": c.GenericBurst.MinEvents > 0, "generic_burst.window": c.GenericBurst.Window > 0, "generic_burst.cooldown": c.GenericBurst.Cooldown > 0,
 	}
 	for k, ok := range pos {
 		if !ok {
@@ -253,6 +273,19 @@ func (b BeaconConfig) validate() error {
 	}
 	if _, err := parseSources(b.IgnoreDestinations); err != nil {
 		return fmt.Errorf("detection.beacon.ignore_destinations: %w", err)
+	}
+	return nil
+}
+
+// validate confere que tipos e atributos tem a forma que o contrato aceita para o EventoGenerico
+// (um tipo fora dela seria rejeitado antes de chegar a regra).
+func (g GenericBurstConfig) validate() error {
+	for name, list := range map[string][]string{"types": g.Types, "group_by": g.GroupBy} {
+		for _, s := range list {
+			if !genericNameRe.MatchString(s) {
+				return fmt.Errorf("detection.generic_burst.%s: %q invalido (use [a-z0-9._-], comecando por letra ou digito, ate 64 caracteres)", name, s)
+			}
+		}
 	}
 	return nil
 }
@@ -309,7 +342,7 @@ func containsIP(nets []*net.IPNet, ip string) bool {
 
 // AllNames lista as regras disponiveis.
 func AllNames() []string {
-	return []string{NameScanSYN, NameDNSNXDomain, NameDNSTunnel, NameDNSRate, NameTLSSuspicious, NameBeacon, NameBruteForce, NameICMPSweep}
+	return []string{NameScanSYN, NameDNSNXDomain, NameDNSTunnel, NameDNSRate, NameTLSSuspicious, NameBeacon, NameBruteForce, NameICMPSweep, NameGenericBurst}
 }
 
 // Build instancia as regras habilitadas.
@@ -319,7 +352,7 @@ func Build(c Config) ([]detection.Rule, error) {
 	}
 	all := []detection.Rule{
 		NewScanSYN(c.Scan), NewNXDomainBurst(c.NXDomain), NewDNSTunnel(c.Tunnel), NewDNSRate(c.DNSRate),
-		NewTLSSuspicious(c.TLS), NewBeacon(c.Beacon), NewBruteForce(c.BruteForce), NewICMPSweep(c.ICMPSweep),
+		NewTLSSuspicious(c.TLS), NewBeacon(c.Beacon), NewBruteForce(c.BruteForce), NewICMPSweep(c.ICMPSweep), NewGenericBurst(c.GenericBurst),
 	}
 	var out []detection.Rule
 	for _, r := range all {
@@ -329,3 +362,7 @@ func Build(c Config) ([]detection.Rule, error) {
 	}
 	return out, nil
 }
+
+// genericNameRe e a forma de tipo e de chave de atributo do EventoGenerico (a mesma que o Core
+// confere em detection.NewGenericEvent).
+var genericNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)

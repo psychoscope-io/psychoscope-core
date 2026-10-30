@@ -54,6 +54,7 @@ type contextRule struct {
 // repete (um teste compara): forcar um ID daria falsa precisao ao enquadramento.
 var noTechnique = map[string]string{
 	NameDNSRate:       "um pico de consultas DNS é volume, não o comportamento de uma técnica específica.",
+	NameGenericBurst:  "o tipo do evento é definido por cada módulo, então a regra não tem como saber qual comportamento a rajada representa.",
 	NameTLSSuspicious: "SNI com IP literal e versão antiga de TLS são anomalias de configuração, sem técnica que as descreva.",
 }
 

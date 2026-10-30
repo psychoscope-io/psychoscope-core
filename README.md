@@ -28,6 +28,7 @@ O que cada regra detecta, como investigar um alerta e como ajustar os falsos pos
   | `net.dns.rate` | ≥200 consultas DNS de um cliente em 10s | MÉDIA |
   | `net.tls.suspicious` | ClientHello com SNI igual a um IP (MÉDIA), SNI com rótulo aleatório de ≥20 caracteres sem hífen (MÉDIA), versão máxima oferecida SSL3/TLS1.0/1.1 (BAIXA) ou ≥3 ClientHellos sem SNI em 60s (BAIXA) | MÉDIA / BAIXA |
   | `net.beacon` | contatos periódicos de um cliente ao mesmo `destino:porta` (SYN) ou domínio (DNS): ≥8 contatos, intervalo médio de 5s a 1h e variação (desvio/média) ≤20%; estado próprio, não depende da janela; destinos, portas e domínios conhecidos podem ser ignorados (`ignore_destinations`, `ignore_ports`, `ignore_domains`) | MÉDIA |
+  | `generic.burst` | ≥10 eventos genéricos (`EventoGenerico`) do mesmo módulo, tipo e grupo em 60s; **inativa por padrão**: só vigia os tipos de `types` e agrupa por `group_by`; grupos conhecidos podem ser ignorados (`ignore_groups`) | MÉDIA |
 
   Uma nova regra é um tipo que implementa `detection.Rule` (`Name`, `Eval(event, window) → alerta`); opcionalmente `detection.Gated`
   (`Key`, `Cooldown`) para pré-filtro barato e supressão de repetições.
@@ -211,7 +212,8 @@ Para montar o ambiente inteiro (clonar proto, core e sensor, atualizar e compila
     "tls":        { "cooldown": "10m", "missing_sni_min": 3, "missing_sni_window": "60s", "min_label_len": 20, "min_entropy": 3.6, "allowed_bases": [] },
     "beacon":     { "min_samples": 8, "min_interval": "5s", "max_interval": "1h", "max_cv": 0.2, "max_keys": 50000, "cooldown": "30m", "ignore_domains": [], "ignore_ports": [], "ignore_destinations": ["203.0.113.0/24"] },
     "bruteforce": { "window": "30s", "min_attempts": 10, "ports": [21, 22, 23, 445, 3389, 5900], "cooldown": "5m", "ignore_sources": ["10.9.0.0/16"] },
-    "icmp_sweep": { "window": "10s", "min_hosts": 20, "cooldown": "60s" }
+    "icmp_sweep": { "window": "10s", "min_hosts": 20, "cooldown": "60s" },
+    "generic_burst": { "types": [], "group_by": [], "min_events": 10, "window": "60s", "cooldown": "5m", "ignore_groups": [] }
   }
 }
 ```

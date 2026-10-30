@@ -540,11 +540,11 @@ func TestNewRulesConfigValidation(t *testing.T) {
 	if err := Default().Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(AllNames()); got != 8 {
+	if got := len(AllNames()); got != 9 {
 		t.Errorf("AllNames: %d", got)
 	}
 	rs, err := Build(Default())
-	if err != nil || len(rs) != 8 {
+	if err != nil || len(rs) != 9 {
 		t.Fatalf("Build: %d %v", len(rs), err)
 	}
 	if w := Default().LongestWindow(); w != time.Minute {

@@ -13,12 +13,14 @@ var ruleLabels = map[string]string{
 	NameBeacon:        "Beacon (conexões periódicas)",
 	NameBruteForce:    "Força bruta de autenticação",
 	NameICMPSweep:     "Varredura ICMP",
+	NameGenericBurst:  "Rajada de eventos genéricos",
 }
 
 // sectionRules liga a secao de detection.<secao> (chave de Config.Sections) a regra.
 var sectionRules = map[string]string{
 	"scan": NameScanSYN, "nxdomain": NameDNSNXDomain, "tunnel": NameDNSTunnel, "dns_rate": NameDNSRate,
 	"tls": NameTLSSuspicious, "beacon": NameBeacon, "bruteforce": NameBruteForce, "icmp_sweep": NameICMPSweep,
+	"generic_burst": NameGenericBurst,
 }
 
 // RuleLabel e o nome legivel de uma regra ("net.beacon" -> "Beacon (conexões periódicas)");
@@ -39,7 +41,7 @@ func SectionRule(section string) (rule string, ok bool) {
 var contextLabels = map[string]string{
 	"alvo": "Alvo", "amostras": "Amostras", "chave": "Chave", "cliente": "Cliente", "conexoes": "Conexões",
 	"consulta_exemplo": "Consulta de exemplo", "consultas": "Consultas", "consultas_distintas": "Consultas distintas",
-	"destino": "Destino", "dominio_base": "Domínio base", "dominios_distintos": "Domínios distintos",
+	"destino": "Destino", "evento_tipo": "Tipo de evento", "grupo": "Grupo", "grupo_valor": "Valor do grupo", "modulo": "Módulo", "ocorrencias": "Ocorrências", "dominio_base": "Domínio base", "dominios_distintos": "Domínios distintos",
 	"dominios_exemplo": "Domínios de exemplo", "hosts_distintos": "Destinos distintos", "intervalo_medio": "Intervalo médio",
 	"janela": "Janela", "motivo": "Motivo", "origem": "Origem", "porta": "Porta", "portas_distintas": "Portas distintas",
 	"portas_exemplo": "Portas de exemplo", "resolvedor": "Resolvedor", "respostas_nxdomain": "Respostas NXDOMAIN",

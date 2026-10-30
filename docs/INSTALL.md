@@ -80,7 +80,7 @@ Seções opcionais (valores padrão entre parênteses):
 |---|---|
 | `storage` | `enabled` (true), `path` (`/var/lib/psychoscope/alerts.db`), `retention_days` (30), `max_alerts` (100000) |
 | `metrics` | `listen` (desligado; ex.: `"127.0.0.1:9464"`), `allow_non_loopback` (false) |
-| `detection` | `window` (60s), `disabled` (lista de regras), e uma seção por regra: `scan`, `nxdomain`, `tunnel`, `dns_rate`, `tls`, `beacon`, `bruteforce`, `icmp_sweep` — veja o README para as chaves de cada uma |
+| `detection` | `window` (60s), `disabled` (lista de regras), e uma seção por regra: `scan`, `nxdomain`, `tunnel`, `dns_rate`, `tls`, `beacon`, `bruteforce`, `icmp_sweep`, `generic_burst` — veja o README para as chaves de cada uma |
 | raiz | `allowed_uids` (UIDs extras com acesso ao canal de controle), `socket_mode` (`0660` ou `0600`), `status_interval`, `log_level`, `overrides_path` (arquivo dos ajustes feitos pela TUI/CLI; padrão `/var/lib/psychoscope/overrides.json`), `engine_state_path` (estado do motor, padrão `/var/lib/psychoscope/engine-state.json`) e `engine_state_interval` (padrão `60s`; `0s` grava só no encerramento) |
 
 Chaves desconhecidas são rejeitadas na partida com a lista das válidas.
