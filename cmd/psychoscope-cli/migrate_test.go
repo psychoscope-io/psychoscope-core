@@ -111,6 +111,9 @@ func TestMigrateConfigCheckWritesNothing(t *testing.T) {
 	if err := cmdMigrateConfig([]string{"--check", "--config", conf, "--sensor-env", env}, &out); err != nil {
 		t.Fatalf("a migracao fiel deve passar na verificacao: %v", err)
 	}
+	if !strings.Contains(out.String(), "seria feita") {
+		t.Errorf("--check deve dizer que a migracao seria feita: %q", out.String())
+	}
 	for _, p := range []string{conf + migrationBackupExt, env} {
 		if _, err := os.Stat(p); err == nil {
 			t.Errorf("--check nao pode criar %s", p)

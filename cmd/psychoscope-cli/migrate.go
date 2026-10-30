@@ -33,7 +33,10 @@ func cmdMigrateConfig(args []string, out io.Writer) error {
 		return fmt.Errorf("uso: migrate-config [--check] [--config %s] [--sensor-env %s] [--user %s]", defaultConfigPath, defaultSensorEnvPath, defaultSensorUser)
 	}
 	if *check {
-		_, err := planMigration(*configPath, *sensorUser, out)
+		plan, err := planMigration(*configPath, *sensorUser, out)
+		if err == nil && plan.Mig.Changed {
+			fmt.Fprintf(out, "a migracao de %s seria feita (nada foi escrito); rode sem --check para aplicar\n", *configPath)
+		}
 		return err
 	}
 	return migrateConfig(*configPath, *envPath, *sensorUser, out)
