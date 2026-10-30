@@ -8,7 +8,7 @@
 #   DISTROS="fedora:latest" deploy/test_distros.sh  # so uma
 #   OLD_CORE=0.11.0 OLD_SENSOR=0.2.1 deploy/test_distros.sh   # versoes de partida da atualizacao
 #   LOCAL_BUILD=0 deploy/test_distros.sh            # atualiza para a ULTIMA RELEASE publicada
-#   COMPAT_LIBPCAP=1 deploy/test_distros.sh         # CONTORNO: cria libpcap.so.0.8 -> libpcap.so.1 se faltar
+#   COMPAT_LIBPCAP=1 deploy/test_distros.sh         # so p/ sensor de partida ate a v0.3.0 (libpcap dinamico): liga libpcap.so.0.8 a libpcap.so.1 no Fedora
 #   KEEP=1 deploy/test_distros.sh                   # nao remove conteineres nem imagens de teste
 #
 # Por distribuicao: instala a versao de partida pelo get.sh publicado (usuario comum + sudo), sobe o

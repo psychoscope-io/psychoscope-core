@@ -20,4 +20,4 @@ Integração, quando a mudança toca IPC, regras, persistência, métricas, CLI 
 cd ../mod-net-sensor && scripts/e2e.sh && scripts/live_smoke.sh
 ```
 
-No relatório final, diga o que rodou e o que **não** pôde rodar (GitHub Actions, systemd real, `setcap`).
+No relatório final, diga o que rodou e o que **não** pôde rodar (GitHub Actions, systemd real, capabilities ambientes).
