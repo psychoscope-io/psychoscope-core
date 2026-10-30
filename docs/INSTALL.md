@@ -1,7 +1,7 @@
 # Instalação
 
 Linux (x86_64 ou arm64) com systemd. O Core é um binário estático em Go; o sensor de rede (`mod-net-sensor`)
-precisa da biblioteca `libpcap` instalada (`sudo apt install libpcap0.8`).
+traz o libpcap embutido a partir da v0.3.1 (nas versões anteriores, instale `libpcap0.8` no Debian e no Ubuntu).
 
 ## Instalação rápida (recomendada)
 
@@ -201,7 +201,7 @@ Comece por `psychoscope-cli doctor` (com `--sensor` para incluir o `--check` do 
 | `nao foi possivel iniciar a captura ... No such device` / `a interface 'eth0' nao existe` | o nome da interface em `args` não existe nesta máquina: rode `mod-net-sensor --list-interfaces` e ajuste `["-i", "<nome>"]` |
 | o sensor sobe, mas o Core não mostra eventos | rode `mod-net-sensor --check -i <interface>`: ele confere permissão, filtro BPF e se o Core está escutando, e diz o que corrigir; `--print` mostra os eventos sem o Core |
 | `analyze`: `nao encontrei o mod-net-sensor` | instale o sensor no `PATH` ou em `/usr/local/bin`, ou use `--sensor /caminho/mod-net-sensor` |
-| `error while loading shared libraries: libpcap.so.0.8` | instale `libpcap0.8` |
+| `error while loading shared libraries: libpcap.so.0.8` | sensor até a v0.3.0: instale `libpcap0.8` ou atualize o sensor para a v0.3.1 ou mais nova |
 | `armazenamento de alertas em ...: ... (defina storage.enabled=false ...)` | o usuário `psychoscope` não consegue escrever em `storage.path`; use o padrão (`StateDirectory`) ou ajuste permissões |
 | `psychoscope-cli`: `permission denied`, `no such file or directory` ou conexão encerrada sem resposta | `psychoscope-cli doctor` diz qual: serviço parado, caminho do socket errado, usuário fora do grupo `psychoscope` ou UID fora de `allowed_uids` (ou use `sudo`) |
 | módulo em `REINICIANDO` com erro `nao conectou ao socket` | caminho/permissões do binário do módulo, ou `connect_timeout` curto demais |

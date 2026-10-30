@@ -6,9 +6,8 @@
 #
 #   deploy/test_distros.sh                          # as tres distribuicoes
 #   DISTROS="fedora:latest" deploy/test_distros.sh  # so uma
-#   OLD_CORE=0.11.0 OLD_SENSOR=0.2.1 deploy/test_distros.sh   # versoes de partida da atualizacao
+#   OLD_CORE=0.11.0 OLD_SENSOR=0.3.1 deploy/test_distros.sh   # versoes de partida da atualizacao
 #   LOCAL_BUILD=0 deploy/test_distros.sh            # atualiza para a ULTIMA RELEASE publicada
-#   COMPAT_LIBPCAP=1 deploy/test_distros.sh         # so p/ sensor de partida ate a v0.3.0 (libpcap dinamico): liga libpcap.so.0.8 a libpcap.so.1 no Fedora
 #   KEEP=1 deploy/test_distros.sh                   # nao remove conteineres nem imagens de teste
 #
 # Por distribuicao: instala a versao de partida pelo get.sh publicado (usuario comum + sudo), sobe o
@@ -27,11 +26,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CORE_DIR="$(cd "$HERE/.." && pwd)"
 DISTROS="${DISTROS:-debian:12 ubuntu:24.04 fedora:latest}"
 OLD_CORE="${OLD_CORE:-0.11.0}"
-OLD_SENSOR="${OLD_SENSOR:-0.2.1}"
+OLD_SENSOR="${OLD_SENSOR:-0.3.1}"
 LOCAL_BUILD="${LOCAL_BUILD:-1}"
 LOCAL_CORE_VERSION="${LOCAL_CORE_VERSION:-99.0.0}"
 NEW_SENSOR="${NEW_SENSOR:-}"
-COMPAT_LIBPCAP="${COMPAT_LIBPCAP:-0}"
 KEEP="${KEEP:-0}"
 GH=https://github.com/psychoscope-io
 command -v docker >/dev/null || { echo "docker nao encontrado" >&2; exit 2; }
@@ -170,10 +168,6 @@ run_distro() {
     echo "  FALHOU: get.sh"; tail -6 "$LOG/get.txt" | sed 's/^/      /'; FAILS=$((FAILS + 1)); return
   fi
   echo "  ok: get.sh"
-  if [ "$COMPAT_LIBPCAP" = 1 ]; then
-    x 'ldd /usr/local/bin/mod-net-sensor | grep -q "libpcap.so.0.8 => not found" && ln -s "$(ls /usr/lib64/libpcap.so.1 /usr/lib/x86_64-linux-gnu/libpcap.so.1 2>/dev/null | head -1)" "$(dirname "$(ls /usr/lib64/libpcap.so.1 /usr/lib/x86_64-linux-gnu/libpcap.so.1 2>/dev/null | head -1)")/libpcap.so.0.8"' \
-      && echo "  AVISO: contorno COMPAT_LIBPCAP aplicado (libpcap.so.0.8 -> libpcap.so.1)"
-  fi
   check "binarios instalados e executaveis" 'for b in psychoscope psychoscope-cli mod-net-sensor; do test -x /usr/local/bin/$b || exit 1; done; test -x /usr/local/sbin/psychoscope-update'
   check "libpcap resolvida (ldd sem 'not found')" '! ldd /usr/local/bin/mod-net-sensor | grep "not found"'
   check "sensor executa (--version)" '/usr/local/bin/mod-net-sensor --version'
