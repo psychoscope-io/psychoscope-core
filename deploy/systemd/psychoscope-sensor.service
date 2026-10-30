@@ -1,0 +1,49 @@
+[Unit]
+Description=Psychoscope MODR - sensor de rede (captura de pacotes)
+Documentation=https://github.com/psychoscope-io/mod-net-sensor
+After=network.target psychoscope.service
+# Parar ou reiniciar o Core para e reinicia o sensor; o sensor reconecta sozinho ao socket.
+PartOf=psychoscope.service
+
+# Sem [Install]: quem o inicia e o psychoscope.service (Wants=), entao habilitar o Core basta.
+
+[Service]
+Type=simple
+# Usuario proprio: o sensor processa pacotes hostis e nao le o banco de alertas do Core. O grupo
+# psychoscope so da acesso ao socket do Core (/run/psychoscope/core.sock, modo 0660).
+User=psychoscope-sensor
+Group=psychoscope-sensor
+SupplementaryGroups=psychoscope
+# A interface de captura fica em /etc/psychoscope/sensor.env (SENSOR_ARGS="-i eth0").
+EnvironmentFile=/etc/psychoscope/sensor.env
+ExecStart=/usr/local/bin/mod-net-sensor $SENSOR_ARGS
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30s
+
+# So o sensor tem as capabilities de captura, entregues como AMBIENT pelo systemd (nao ha setcap
+# no binario). Com NoNewPrivileges o kernel aceita as ambientes, e as opcoes de isolamento abaixo
+# (que o systemd antigo converte em NoNewPrivs) deixam de ser um problema.
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=yes
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_PACKET AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077

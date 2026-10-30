@@ -6,7 +6,40 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 fail() { echo "FALHOU: $*" >&2; exit 1; }
 
 mkdir -p "$T/bin" "$T/stage"
-for b in psychoscope psychoscope-cli mod-net-sensor; do printf '#!/bin/sh\necho %s\n' "$b" > "$T/bin/$b"; chmod +x "$T/bin/$b"; done
+for b in psychoscope mod-net-sensor; do printf '#!/bin/sh\necho %s\n' "$b" > "$T/bin/$b"; chmod +x "$T/bin/$b"; done
+# O psychoscope-cli falso registra as chamadas de migrate-config e falha se MIGRATE_FAIL existir.
+cat > "$T/bin/psychoscope-cli" <<SH
+#!/bin/sh
+if [ "\$1" = migrate-config ]; then
+  echo "\$@" >> "$T/migrate.log"
+  [ ! -e "$T/MIGRATE_FAIL" ] || { echo "migracao recusada" >&2; exit 1; }
+fi
+echo psychoscope-cli
+SH
+chmod +x "$T/bin/psychoscope-cli"
+
+# Invariantes de seguranca das units (sem root, sem systemd). O Core roda sem nenhuma capability e com
+# NoNewPrivileges; as capabilities de captura so existem na unit do sensor, como ambientes. Sem
+# setcap: o systemd antigo (252) converte varias opcoes de isolamento em NoNewPrivs e anula o setcap.
+check_units() {
+  local core="$1/psychoscope.service" sensor="$1/psychoscope-sensor.service"
+  grep -q '^NoNewPrivileges=yes$' "$core" || fail "o Core deve rodar com NoNewPrivileges=yes"
+  grep -q '^CapabilityBoundingSet=$' "$core" || fail "o Core nao pode ter capability alguma (CapabilityBoundingSet= vazio)"
+  grep -q '^AmbientCapabilities=$' "$core" || fail "o Core nao pode receber capabilities ambientes"
+  if grep -v '^#' "$core" | grep -Eq 'AF_PACKET|CAP_NET_RAW|CAP_NET_ADMIN'; then fail "o Core nao precisa de AF_PACKET nem de capabilities de rede"; fi
+  if grep -q '^NoNewPrivileges=no' "$core" "$sensor"; then fail "NoNewPrivileges=no anula-se no systemd antigo; use ambientes"; fi
+  grep -q '^Wants=psychoscope-sensor.service$' "$core" || fail "o Core deve puxar a unit do sensor (Wants=)"
+  grep -q '^User=psychoscope$' "$core" || fail "usuario do Core"
+  grep -q '^User=psychoscope-sensor$' "$sensor" || fail "o sensor deve ter usuario proprio"
+  grep -q '^SupplementaryGroups=psychoscope$' "$sensor" || fail "o sensor precisa do grupo do socket do Core"
+  grep -q '^NoNewPrivileges=yes$' "$sensor" || fail "o sensor deve rodar com NoNewPrivileges=yes"
+  grep -q '^AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN$' "$sensor" || fail "o sensor recebe as capabilities de captura como ambientes"
+  grep -q '^CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN$' "$sensor" || fail "limite de capabilities do sensor"
+  grep -q '^EnvironmentFile=/etc/psychoscope/sensor.env$' "$sensor" || fail "EnvironmentFile do sensor"
+  grep -q "^ExecStart=/usr/local/bin/mod-net-sensor \$SENSOR_ARGS$" "$sensor" || fail "ExecStart do sensor"
+  grep -q '^PartOf=psychoscope.service$' "$sensor" || fail "o sensor acompanha o Core (PartOf=)"
+  if grep -q '^\[Install\]' "$sensor"; then fail "o sensor e iniciado pelo Core: sem [Install]"; fi
+}
 
 # 1. instalacao em staging
 "$HERE/install.sh" --bin-dir "$T/bin" --sensor "$T/bin/mod-net-sensor" --destdir "$T/stage" --prefix /usr/local >"$T/out.txt" 2>"$T/err.txt"
@@ -16,30 +49,49 @@ done
 [ "$(stat -c %a "$T/stage/etc/psychoscope/psychoscope.json")" = 640 ] || fail "modo da configuracao"
 [ "$(stat -c %a "$T/stage/etc/psychoscope")" = 750 ] || fail "modo do diretorio de configuracao"
 grep -q '^ExecStart=/usr/local/bin/psychoscope --config /etc/psychoscope/psychoscope.json$' "$T/stage/etc/systemd/system/psychoscope.service" || fail "ExecStart da unit"
-grep -q '^KillMode=mixed$' "$T/stage/etc/systemd/system/psychoscope.service" || fail "KillMode=mixed na unit (o Core encerra o sensor de forma ordenada)"
-grep -q "setcap nao aplicado" "$T/err.txt" || fail "deveria avisar que o setcap nao foi aplicado em staging"
+[ ! -e "$T/migrate.log" ] || fail "sem configuracao previa nao ha o que migrar"
+[ "$(stat -c %a "$T/stage/etc/psychoscope/sensor.env")" = 640 ] || fail "modo do sensor.env"
+grep -q '^SENSOR_ARGS=' "$T/stage/etc/psychoscope/sensor.env" || fail "sensor.env deveria trazer SENSOR_ARGS"
+check_units "$T/stage/etc/systemd/system"
 grep -q "systemctl enable --now psychoscope" "$T/out.txt" || fail "instrucoes finais"
 grep -q "Instalacao concluida" "$T/out.txt" || fail "a primeira instalacao deveria dizer que e nova"
 python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$T/stage/etc/psychoscope/psychoscope.json" || fail "config de exemplo nao e JSON valido"
 
 # 2. nao sobrescreve a configuracao existente; reinstalar e idempotente
 echo '{"socket_mode":"0600"}' > "$T/stage/etc/psychoscope/psychoscope.json"
+echo 'SENSOR_ARGS=-i enp3s0' > "$T/stage/etc/psychoscope/sensor.env"
 "$HERE/install.sh" --bin-dir "$T/bin" --destdir "$T/stage" >"$T/out2.txt" 2>&1
 grep -q '"0600"' "$T/stage/etc/psychoscope/psychoscope.json" || fail "a configuracao existente foi sobrescrita"
 grep -q "mantendo /etc/psychoscope/psychoscope.json existente" "$T/out2.txt" || fail "mensagem de preservacao"
+grep -q '^SENSOR_ARGS=-i enp3s0$' "$T/stage/etc/psychoscope/sensor.env" || fail "o sensor.env do administrador foi sobrescrito"
+grep -q "mantendo /etc/psychoscope/sensor.env existente" "$T/out2.txt" || fail "mensagem de preservacao do sensor.env"
+grep -qx -- "migrate-config --config $T/stage/etc/psychoscope/psychoscope.json --sensor-env $T/stage/etc/psychoscope/sensor.env" "$T/migrate.log" ||
+  fail "atualizar uma configuracao existente deve chamar migrate-config com os caminhos dela"
 grep -q "Atualizacao concluida" "$T/out2.txt" || fail "reinstalar deveria dizer que e uma atualizacao"
 if grep -q "enable --now" "$T/out2.txt"; then fail "a atualizacao nao deveria repetir os passos da instalacao nova"; fi
 grep -q "systemctl restart psychoscope" "$T/out2.txt" || fail "a atualizacao deveria dizer como reiniciar o servico"
+
+# 2b. se a migracao da configuracao antiga for recusada, nada e instalado nem alterado
+touch "$T/MIGRATE_FAIL"
+echo '{"socket_mode":"0600"}' > "$T/stage4-conf.json"
+mkdir -p "$T/stage4/etc/psychoscope"; cp "$T/stage4-conf.json" "$T/stage4/etc/psychoscope/psychoscope.json"
+if "$HERE/install.sh" --bin-dir "$T/bin" --destdir "$T/stage4" >"$T/out4.txt" 2>"$T/err4.txt"; then fail "migracao recusada deveria abortar a instalacao"; fi
+grep -q "nao pode ser migrada sozinha" "$T/err4.txt" || fail "mensagem de migracao recusada"
+[ ! -e "$T/stage4/usr" ] || fail "nada deve ser instalado quando a migracao e recusada"
+cmp -s "$T/stage4-conf.json" "$T/stage4/etc/psychoscope/psychoscope.json" || fail "a configuracao nao pode mudar"
+rm "$T/MIGRATE_FAIL"
 
 # 3. prefixo customizado reflete na unit
 "$HERE/install.sh" --bin-dir "$T/bin" --destdir "$T/stage2" --prefix /opt/psy >/dev/null 2>&1
 grep -q '^ExecStart=/opt/psy/bin/psychoscope ' "$T/stage2/etc/systemd/system/psychoscope.service" || fail "prefixo na unit"
 [ -x "$T/stage2/opt/psy/bin/psychoscope" ] || fail "binario no prefixo"
+grep -q "^ExecStart=/opt/psy/bin/mod-net-sensor \$SENSOR_ARGS$" "$T/stage2/etc/systemd/system/psychoscope-sensor.service" || fail "prefixo na unit do sensor"
 
 # 4. dry-run nao escreve nada
 "$HERE/install.sh" --bin-dir "$T/bin" --sensor "$T/bin/mod-net-sensor" --destdir "$T/stage3" --dry-run >"$T/dry.txt" 2>&1
 [ ! -e "$T/stage3" ] || fail "dry-run criou arquivos"
 grep -q "^\[dry-run\] install" "$T/dry.txt" || fail "dry-run deveria listar as acoes"
+grep -q "psychoscope-sensor.service" "$T/dry.txt" || fail "dry-run deveria listar a unit do sensor"
 
 # 5. erros claros
 if "$HERE/install.sh" --bogus 2>"$T/e1.txt"; then fail "flag desconhecida deveria falhar"; fi

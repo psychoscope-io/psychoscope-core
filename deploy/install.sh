@@ -2,11 +2,14 @@
 # Instala o Psychoscope (core + CLI, e opcionalmente o sensor) como servico systemd.
 #
 #   sudo ./deploy/install.sh [--sensor /caminho/mod-net-sensor] [--prefix /usr/local]
-#                            [--bin-dir DIR] [--no-setcap] [--dry-run] [--destdir DIR]
+#                            [--bin-dir DIR] [--dry-run] [--destdir DIR]
 #
 # - Sem --destdir exige root. Com --destdir instala em um diretorio de staging (empacotamento
-#   e testes): nao cria usuario, nao aplica setcap e nao toca no systemd.
-# - Nunca sobrescreve /etc/psychoscope/psychoscope.json existente.
+#   e testes): nao cria usuarios e nao toca no systemd.
+# - Duas units: psychoscope.service (Core, sem capabilities) e psychoscope-sensor.service (sensor,
+#   usuario proprio psychoscope-sensor, capabilities de captura pelo systemd; nao ha setcap).
+# - Nunca sobrescreve /etc/psychoscope/psychoscope.json nem sensor.env existentes. Ao atualizar uma
+#   configuracao antiga (sensor lancado pelo Core), converte so o modulo do sensor, com copia.
 # - --dry-run apenas mostra o que seria feito.
 set -euo pipefail
 
@@ -14,10 +17,9 @@ PREFIX=/usr/local
 DESTDIR=""
 SENSOR=""
 BIN_DIR=""
-SETCAP=1
 DRY=0
 
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; }
 die() { echo "install.sh: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
@@ -26,7 +28,6 @@ while [ $# -gt 0 ]; do
     --destdir)  [ $# -ge 2 ] || die "--destdir exige um valor"; DESTDIR="$2"; shift 2 ;;
     --sensor)   [ $# -ge 2 ] || die "--sensor exige um caminho"; SENSOR="$2"; shift 2 ;;
     --bin-dir)  [ $# -ge 2 ] || die "--bin-dir exige um diretorio"; BIN_DIR="$2"; shift 2 ;;
-    --no-setcap) SETCAP=0; shift ;;
     --dry-run)  DRY=1; shift ;;
     -h|--help)  usage; exit 0 ;;
     *) usage >&2; die "argumento desconhecido: $1" ;;
@@ -40,7 +41,8 @@ if [ ! -x "$BIN_DIR/psychoscope" ] || [ ! -x "$BIN_DIR/psychoscope-cli" ]; then
   die "binarios psychoscope e psychoscope-cli nao encontrados em $BIN_DIR (rode a partir do tarball de release ou use --bin-dir)"
 fi
 [ -z "$SENSOR" ] || [ -x "$SENSOR" ] || die "sensor nao encontrado ou nao executavel: $SENSOR"
-if [ ! -f "$HERE/systemd/psychoscope.service" ] || [ ! -f "$HERE/psychoscope.json.example" ]; then
+if [ ! -f "$HERE/systemd/psychoscope.service" ] || [ ! -f "$HERE/systemd/psychoscope-sensor.service" ] ||
+  [ ! -f "$HERE/psychoscope.json.example" ] || [ ! -f "$HERE/sensor.env.example" ]; then
   die "arquivos de deploy ausentes em $HERE"
 fi
 
@@ -61,10 +63,20 @@ UNIT_DIR=/etc/systemd/system
 UPDATING=0
 [ ! -e "$(D "$UNIT_DIR")/psychoscope.service" ] || UPDATING=1
 
-# 1. usuario de sistema
+# 0. configuracao de uma versao antiga (sensor lancado pelo Core) -> modulo externo. Primeiro de tudo:
+# se a conversao nao for fiel, ela recusa e nada foi instalado nem alterado.
+if [ -e "$(D "$CONF")/psychoscope.json" ]; then
+  run "$BIN_DIR/psychoscope-cli" migrate-config --config "$(D "$CONF")/psychoscope.json" --sensor-env "$(D "$CONF")/sensor.env" ||
+    die "a configuracao existente nao pode ser migrada sozinha; veja a mensagem acima e docs/INSTALL.md (Atualizando de 0.11 ou anterior)"
+fi
+
+# 1. usuarios de sistema: o Core e o sensor nao compartilham usuario
 if [ -z "$DESTDIR" ]; then
   if ! getent passwd psychoscope >/dev/null; then
     run useradd --system --user-group --no-create-home --home-dir /var/lib/psychoscope --shell /usr/sbin/nologin psychoscope
+  fi
+  if ! getent passwd psychoscope-sensor >/dev/null; then
+    run useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin psychoscope-sensor
   fi
 fi
 
@@ -74,12 +86,6 @@ run install -m 0755 "$BIN_DIR/psychoscope" "$(D "$BINDIR")/psychoscope"
 run install -m 0755 "$BIN_DIR/psychoscope-cli" "$(D "$BINDIR")/psychoscope-cli"
 if [ -n "$SENSOR" ]; then
   run install -m 0755 "$SENSOR" "$(D "$BINDIR")/mod-net-sensor"
-  if [ "$SETCAP" = 1 ] && [ -z "$DESTDIR" ]; then
-    command -v setcap >/dev/null || [ "$DRY" = 1 ] || die "setcap nao encontrado (pacote libcap2-bin); use --no-setcap para aplicar depois"
-    run setcap cap_net_raw,cap_net_admin=eip "$BINDIR/mod-net-sensor"
-  else
-    echo "aviso: setcap nao aplicado. Rode: setcap cap_net_raw,cap_net_admin=eip $BINDIR/mod-net-sensor" >&2
-  fi
 fi
 # O atualizador fica instalado: `psychoscope-update` baixa, confere e instala a proxima versao.
 if [ -f "$HERE/get.sh" ]; then
@@ -94,17 +100,24 @@ if [ -e "$(D "$CONF")/psychoscope.json" ]; then
 else
   run install -m 0640 "$HERE/psychoscope.json.example" "$(D "$CONF")/psychoscope.json"
 fi
+if [ -e "$(D "$CONF")/sensor.env" ]; then
+  echo "mantendo $CONF/sensor.env existente"
+else
+  run install -m 0640 "$HERE/sensor.env.example" "$(D "$CONF")/sensor.env"
+fi
 if [ -z "$DESTDIR" ]; then
-  run chgrp psychoscope "$CONF" "$CONF/psychoscope.json" 2>/dev/null || true
+  run chgrp psychoscope "$CONF" "$CONF/psychoscope.json" "$CONF/sensor.env" 2>/dev/null || true
 fi
 
-# 4. unit do systemd (ajusta o caminho do binario ao prefixo escolhido)
+# 4. units do systemd (ajustam o caminho dos binarios ao prefixo escolhido)
 run install -d -m 0755 "$(D "$UNIT_DIR")"
 if [ "$DRY" = 1 ]; then
   echo "[dry-run] gerar $UNIT_DIR/psychoscope.service (ExecStart=$BINDIR/psychoscope)"
+  echo "[dry-run] gerar $UNIT_DIR/psychoscope-sensor.service (ExecStart=$BINDIR/mod-net-sensor)"
 else
   sed "s#^ExecStart=.*#ExecStart=$BINDIR/psychoscope --config $CONF/psychoscope.json#" "$HERE/systemd/psychoscope.service" > "$(D "$UNIT_DIR")/psychoscope.service"
-  chmod 0644 "$(D "$UNIT_DIR")/psychoscope.service"
+  sed "s#^ExecStart=.*#ExecStart=$BINDIR/mod-net-sensor \$SENSOR_ARGS#" "$HERE/systemd/psychoscope-sensor.service" > "$(D "$UNIT_DIR")/psychoscope-sensor.service"
+  chmod 0644 "$(D "$UNIT_DIR")/psychoscope.service" "$(D "$UNIT_DIR")/psychoscope-sensor.service"
 fi
 
 if [ "$UPDATING" = 1 ]; then
@@ -112,6 +125,7 @@ if [ "$UPDATING" = 1 ]; then
 
 Atualizacao concluida${DESTDIR:+ em $DESTDIR}. A configuracao existente foi mantida.
 Para usar a versao nova: sudo systemctl daemon-reload && sudo systemctl restart psychoscope
+(reiniciar o Core reinicia tambem o sensor, que tem unit propria: psychoscope-sensor)
 (o psychoscope-update ja faz isso sozinho)
 MSG
 else
@@ -119,7 +133,7 @@ else
 
 Instalacao concluida${DESTDIR:+ em $DESTDIR}.
 Proximos passos:
-  1. edite $CONF/psychoscope.json (interface do sensor em "args", por exemplo ["-i", "eth0"];
+  1. edite $CONF/sensor.env (interface de captura em SENSOR_ARGS, por exemplo "-i eth0";
      veja os nomes com: mod-net-sensor --list-interfaces)
   2. sudo systemctl daemon-reload && sudo systemctl enable --now psychoscope
   3. sudo psychoscope-cli list        # ou: sudo psychoscope-cli (TUI)

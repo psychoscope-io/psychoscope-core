@@ -2,7 +2,7 @@
 # Baixa, verifica e instala (ou atualiza) o Psychoscope: Core, CLI e sensor, a partir das releases do GitHub.
 #
 #   ./get.sh [--core-version X.Y.Z] [--sensor-version X.Y.Z] [--prefix /usr/local] [--force]
-#            [--check] [--dry-run] [--no-setcap] [--no-attestation] [--destdir DIR]
+#            [--check] [--dry-run] [--no-attestation] [--destdir DIR]
 #   ./get.sh --uninstall [--purge] [--yes] [--prefix /usr/local] [--dry-run] [--destdir DIR]
 #
 # - Rode como usuario comum: o download e a verificacao nao precisam de root, e o script chama
@@ -13,8 +13,9 @@
 # - Reaproveita o deploy/install.sh do tarball: nunca sobrescreve /etc/psychoscope/psychoscope.json.
 # - Se o servico estiver ativo, faz daemon-reload e restart. Nada a fazer se ja estiver atualizado.
 # - --check so compara as versoes instaladas com as disponiveis (sai com 1 se houver atualizacao).
-# - --uninstall remove servico e binarios e mantem configuracao e alertas; --purge apaga tambem
-#   /etc/psychoscope, /var/lib/psychoscope e o usuario psychoscope (irreversivel; pede confirmacao).
+# - --uninstall remove os servicos (Core e sensor) e binarios e mantem configuracao e alertas; --purge
+#   apaga tambem /etc/psychoscope, /var/lib/psychoscope e os usuarios psychoscope e psychoscope-sensor
+#   (irreversivel; pede confirmacao).
 # - PSYCHOSCOPE_RELEASE_BASE troca a origem dos downloads (espelho interno ou teste).
 set -euo pipefail
 
@@ -27,7 +28,6 @@ SENSOR_VERSION=""
 CHECK=0
 FORCE=0
 DRY=0
-SETCAP=1
 ATTEST=1
 UNINSTALL=0
 PURGE=0
@@ -119,16 +119,19 @@ confirm() {
 uninstall() {
   if [ -z "$DESTDIR" ] && command -v systemctl >/dev/null; then
     as_root systemctl disable --now psychoscope 2>/dev/null || true
+    as_root systemctl stop psychoscope-sensor 2>/dev/null || true
   fi
-  as_root rm -f "$DESTDIR/etc/systemd/system/psychoscope.service" \
+  as_root rm -f "$DESTDIR/etc/systemd/system/psychoscope.service" "$DESTDIR/etc/systemd/system/psychoscope-sensor.service" \
     "$DESTDIR$PREFIX/bin/psychoscope" "$DESTDIR$PREFIX/bin/psychoscope-cli" "$DESTDIR$PREFIX/bin/mod-net-sensor" \
     "$DESTDIR$PREFIX/sbin/psychoscope-update"
   if [ -z "$DESTDIR" ] && command -v systemctl >/dev/null; then as_root systemctl daemon-reload; fi
   if [ "$PURGE" = 1 ]; then
-    confirm "Isto apaga /etc/psychoscope, /var/lib/psychoscope (config, alertas e ajustes) e o usuario psychoscope, sem volta."
+    confirm "Isto apaga /etc/psychoscope, /var/lib/psychoscope (config, alertas e ajustes) e os usuarios psychoscope e psychoscope-sensor, sem volta."
     as_root rm -rf "$DESTDIR/etc/psychoscope" "$DESTDIR/var/lib/psychoscope"
-    if [ -z "$DESTDIR" ] && getent passwd psychoscope >/dev/null; then as_root userdel psychoscope; fi
-    echo "Psychoscope removido, inclusive configuracao, alertas e usuario."
+    if [ -z "$DESTDIR" ]; then
+      for u in psychoscope-sensor psychoscope; do getent passwd "$u" >/dev/null && as_root userdel "$u"; done
+    fi
+    echo "Psychoscope removido, inclusive configuracao, alertas e usuarios."
   else
     echo "Psychoscope removido. Configuracao (/etc/psychoscope) e alertas (/var/lib/psychoscope) foram mantidos; use --purge para apagar."
   fi
@@ -144,7 +147,6 @@ main() {
       --check)          CHECK=1; shift ;;
       --force)          FORCE=1; shift ;;
       --dry-run)        DRY=1; shift ;;
-      --no-setcap)      SETCAP=0; shift ;;
       --no-attestation) ATTEST=0; shift ;;
       --uninstall)      UNINSTALL=1; shift ;;
       --purge)          PURGE=1; shift ;;
@@ -205,7 +207,6 @@ main() {
   local core_dir="$TMP/psychoscope-core_${core_want}_linux_${ARCH}"
   local sensor_bin="$TMP/mod-net-sensor_${sensor_want}_linux_${ARCH}/mod-net-sensor"
   local args=(--sensor "$sensor_bin" --prefix "$PREFIX" --bin-dir "$core_dir")
-  [ "$SETCAP" = 1 ] || args+=(--no-setcap)
   [ -z "$DESTDIR" ] || args+=(--destdir "$DESTDIR")
   [ "$DRY" = 0 ] || args+=(--dry-run)
   "${SUDO[@]}" bash "$core_dir/deploy/install.sh" "${args[@]}"

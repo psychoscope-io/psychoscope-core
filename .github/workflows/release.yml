@@ -41,7 +41,7 @@ jobs:
           mkdir -p "dist/$PKG"
           make build VERSION="$VERSION" DIST="dist/$PKG"
           cp -r LICENSE README.md deploy docs "dist/$PKG/"
-          rm -f "dist/$PKG/deploy/test_install.sh" "dist/$PKG/deploy/test_get.sh"
+          rm -f "dist/$PKG/deploy/test_install.sh" "dist/$PKG/deploy/test_get.sh" "dist/$PKG/deploy/test_distros.sh" "dist/$PKG/deploy/release_server.py"
           tar -C dist -czf "dist/$PKG.tar.gz" "$PKG"
           rm -rf "dist/$PKG"
       - uses: actions/upload-artifact@v7

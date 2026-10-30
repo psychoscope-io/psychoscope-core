@@ -29,53 +29,21 @@ publish() {
   done
   if [ "$repo" = psychoscope-core ]; then
     mkdir -p "$T/build/$pkg/deploy"
-    cp -r "$HERE/install.sh" "$HERE/get.sh" "$HERE/systemd" "$HERE/psychoscope.json.example" "$T/build/$pkg/deploy/"
+    cp -r "$HERE/install.sh" "$HERE/get.sh" "$HERE/systemd" "$HERE/psychoscope.json.example" "$HERE/sensor.env.example" "$T/build/$pkg/deploy/"
   fi
   tar -C "$T/build" -czf "$d/$pkg.tar.gz" "$pkg"
   (cd "$d" && sha256sum ./*.tar.gz > SHA256SUMS)
 }
 
-cat > "$T/server.py" <<'PY'
-import functools, http.server, os, re, sys
-root, portfile = sys.argv[1], sys.argv[2]
-
-class Handler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *args):
-        pass
-
-    def _route(self, fallback):
-        m = re.fullmatch(r"/([\w.-]+)/releases/latest", self.path)
-        if m:
-            d = os.path.join(root, m.group(1), "releases", "download")
-            vers = sorted(os.listdir(d), key=lambda v: tuple(map(int, v[1:].split(".")))) if os.path.isdir(d) else []
-            self.send_response(302)
-            self.send_header("Location", "/%s/releases/%s" % (m.group(1), "tag/" + vers[-1] if vers else ""))
-            self.end_headers()
-        elif re.fullmatch(r"/[\w.-]+/releases(/tag/v[\d.]+)?", self.path):
-            self.send_response(200)
-            self.end_headers()
-        else:
-            fallback()
-
-    def do_GET(self):
-        self._route(super().do_GET)
-
-    def do_HEAD(self):
-        self._route(super().do_HEAD)
-
-srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, directory=root))
-open(portfile, "w").write(str(srv.server_address[1]))
-srv.serve_forever()
-PY
 mkdir -p "$T/srv"
-python3 "$T/server.py" "$T/srv" "$T/port" &
+python3 "$HERE/release_server.py" "$T/srv" "$T/port" &
 SRV=$!
 for _ in $(seq 50); do [ -s "$T/port" ] && break; sleep 0.1; done
 [ -s "$T/port" ] || fail "servidor de teste nao subiu"
 PORT="$(cat "$T/port")"
 export PSYCHOSCOPE_RELEASE_BASE="http://127.0.0.1:$PORT"
 
-get() { "$HERE/get.sh" --no-attestation --no-setcap "$@"; }
+get() { "$HERE/get.sh" --no-attestation "$@"; }
 version_of() { "$T/$1/usr/local/bin/$2" --version; }
 S="$T/stage"
 
@@ -152,10 +120,11 @@ if get --purge 2>"$T/e7e.txt"; then fail "--purge sem --uninstall deveria falhar
 
 # 8. desinstalacao: mantem configuracao; --purge --yes apaga tudo
 get --uninstall --destdir "$S" >"$T/o8.txt" 2>&1 || fail "uninstall"
-for f in usr/local/bin/psychoscope usr/local/bin/psychoscope-cli usr/local/bin/mod-net-sensor usr/local/sbin/psychoscope-update etc/systemd/system/psychoscope.service; do
+for f in usr/local/bin/psychoscope usr/local/bin/psychoscope-cli usr/local/bin/mod-net-sensor usr/local/sbin/psychoscope-update etc/systemd/system/psychoscope.service etc/systemd/system/psychoscope-sensor.service; do
   [ ! -e "$S/$f" ] || fail "$f deveria ter sido removido"
 done
 [ -f "$S/etc/psychoscope/psychoscope.json" ] || fail "uninstall nao deveria apagar a configuracao"
+[ -f "$S/etc/psychoscope/sensor.env" ] || fail "uninstall nao deveria apagar o sensor.env"
 get --uninstall --purge --yes --destdir "$S" >/dev/null 2>&1 || fail "uninstall --purge"
 [ ! -e "$S/etc/psychoscope" ] || fail "--purge deveria apagar a configuracao"
 

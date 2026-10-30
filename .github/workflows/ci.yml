@@ -60,5 +60,7 @@ jobs:
         run: ./deploy/test_get.sh
       - name: unit do systemd
         run: |
-          sed 's#/usr/local/bin/psychoscope#/bin/true#' deploy/systemd/psychoscope.service > /tmp/psychoscope.service
-          systemd-analyze verify --man=no /tmp/psychoscope.service
+          for u in psychoscope psychoscope-sensor; do
+            sed 's#^ExecStart=.*#ExecStart=/bin/true#' "deploy/systemd/$u.service" > "/tmp/$u.service"
+          done
+          systemd-analyze verify --man=no /tmp/psychoscope.service /tmp/psychoscope-sensor.service

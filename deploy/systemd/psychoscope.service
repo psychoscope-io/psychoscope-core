@@ -2,6 +2,7 @@
 Description=Psychoscope MODR - core (hub, supervisor e motor de deteccao)
 Documentation=https://github.com/psychoscope-io/psychoscope-core
 After=network.target
+Wants=psychoscope-sensor.service
 
 [Service]
 Type=simple
@@ -11,10 +12,6 @@ ExecStart=/usr/local/bin/psychoscope --config /etc/psychoscope/psychoscope.json
 Restart=on-failure
 RestartSec=2s
 TimeoutStopSec=30s
-# SIGTERM so para o Core, que encerra o sensor de forma ordenada (comando ENCERRAR com ACK);
-# o que sobrar no grupo recebe SIGKILL no fim do timeout. Com o padrao (control-group) o sensor
-# recebia SIGTERM junto com o Core e o log mostrava "ENCERRAR nao confirmado ... broken pipe".
-KillMode=mixed
 
 # Diretorios gerenciados pelo systemd (dono: psychoscope). Com eles, o Core usa
 # /run/psychoscope (sockets) e /var/lib/psychoscope (alerts.db) sem configuracao extra.
@@ -24,16 +21,15 @@ StateDirectory=psychoscope
 StateDirectoryMode=0750
 UMask=0077
 
-# Privilegios minimos. O Core roda como usuario sem capabilities. O sensor (processo
-# filho) ganha CAP_NET_RAW/CAP_NET_ADMIN SOMENTE pelas file capabilities do binario
-# (setcap cap_net_raw,cap_net_admin=eip), limitadas pelo bounding set abaixo.
-# NoNewPrivileges precisa ficar DESLIGADO: com ele, o kernel ignora as file capabilities
-# no execve e o sensor nao conseguiria abrir a captura. Veja docs/INSTALL.md.
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+# Privilegios minimos. O Core roda como usuario sem NENHUMA capability e com NoNewPrivileges.
+# O sensor (que precisa de CAP_NET_RAW/CAP_NET_ADMIN) NAO e filho do Core: tem unit propria,
+# usuario proprio e as capabilities por AmbientCapabilities (psychoscope-sensor.service). Assim
+# o isolamento abaixo pode ser tao forte quanto o systemd permitir, sem depender de setcap.
+CapabilityBoundingSet=
 AmbientCapabilities=
-NoNewPrivileges=no
+NoNewPrivileges=yes
 
-# Isolamento (vale para o Core e para os modulos filhos)
+# Isolamento
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -49,7 +45,7 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_PACKET AF_NETLINK
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 

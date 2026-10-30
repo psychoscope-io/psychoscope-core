@@ -4,9 +4,8 @@
   "modules": [
     {
       "id": "mod-net-sensor",
-      "path": "/usr/local/bin/mod-net-sensor",
-      "args": ["-i", "eth0"],
-      "stop_grace": "10s"
+      "external": true,
+      "user": "psychoscope-sensor"
     }
   ],
   "storage": {
