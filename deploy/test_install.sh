@@ -45,6 +45,20 @@ check_units() {
   if grep -q '^\[Install\]' "$sensor"; then fail "o sensor e iniciado pelo Core: sem [Install]"; fi
 }
 
+# O molde de unit para modulos novos e so um exemplo: nao e instalado e nao pode ter privilegio algum.
+check_module_template() {
+  local u="$1"
+  grep -q '^NoNewPrivileges=yes$' "$u" || fail "o molde de modulo deve rodar com NoNewPrivileges=yes"
+  grep -q '^CapabilityBoundingSet=$' "$u" || fail "o molde de modulo nao pode ter capability alguma"
+  grep -q '^AmbientCapabilities=$' "$u" || fail "o molde de modulo nao pode receber capabilities ambientes"
+  if grep -q '^NoNewPrivileges=no' "$u"; then fail "NoNewPrivileges=no anula-se no systemd antigo"; fi
+  if grep -v '^#' "$u" | grep -Eq 'CAP_[A-Z_]+|AF_PACKET'; then fail "o molde de modulo nao pede capability nem AF_PACKET"; fi
+  grep -q '^User=psychoscope-MODULO$' "$u" || fail "o molde deve ter usuario proprio"
+  grep -q '^SupplementaryGroups=psychoscope$' "$u" || fail "o molde precisa do grupo do socket do Core"
+  grep -q '^RestrictAddressFamilies=AF_UNIX$' "$u" || fail "o molde so fala com o socket do Core"
+}
+check_module_template "$HERE/systemd/psychoscope-module.service.example"
+
 # 1. instalacao em staging
 "$HERE/install.sh" --bin-dir "$T/bin" --sensor "$T/bin/mod-net-sensor" --destdir "$T/stage" --prefix /usr/local >"$T/out.txt" 2>"$T/err.txt"
 for f in usr/local/bin/psychoscope usr/local/bin/psychoscope-cli usr/local/bin/mod-net-sensor usr/local/sbin/psychoscope-update; do
@@ -57,6 +71,7 @@ grep -q '^ExecStart=/usr/local/bin/psychoscope --config /etc/psychoscope/psychos
 [ "$(stat -c %a "$T/stage/etc/psychoscope/sensor.env")" = 640 ] || fail "modo do sensor.env"
 grep -q '^SENSOR_ARGS=' "$T/stage/etc/psychoscope/sensor.env" || fail "sensor.env deveria trazer SENSOR_ARGS"
 check_units "$T/stage/etc/systemd/system"
+if ls "$T"/stage/etc/systemd/system/psychoscope-module* >/dev/null 2>&1; then fail "o molde de modulo nao deve ser instalado"; fi
 grep -q "systemctl enable --now psychoscope" "$T/out.txt" || fail "instrucoes finais"
 grep -q "Instalacao concluida" "$T/out.txt" || fail "a primeira instalacao deveria dizer que e nova"
 python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$T/stage/etc/psychoscope/psychoscope.json" || fail "config de exemplo nao e JSON valido"

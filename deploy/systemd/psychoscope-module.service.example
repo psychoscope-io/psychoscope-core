@@ -1,0 +1,54 @@
+# Molde de unit para um modulo proprio do Psychoscope. NAO e instalado pelo install.sh: copie para
+# /etc/systemd/system/psychoscope-<modulo>.service, troque MODULO e o usuario, e veja docs/MODULOS.md.
+#
+# O Core roda sem privilegios e nao lanca este modulo: quem o mantem e o systemd, e o Core so o
+# aceita se o UID que o kernel informa na conexao for o do usuario declarado em psychoscope.json
+# ({ "id": "MODULO", "external": true, "user": "psychoscope-MODULO" }).
+[Unit]
+Description=Psychoscope MODR - modulo MODULO
+After=psychoscope.service
+PartOf=psychoscope.service
+
+[Service]
+Type=simple
+# Usuario proprio do modulo (sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin
+# psychoscope-MODULO). O grupo psychoscope so da acesso ao socket do Core (/run/psychoscope/core.sock).
+User=psychoscope-MODULO
+Group=psychoscope-MODULO
+SupplementaryGroups=psychoscope
+ExecStart=/usr/local/bin/mod-MODULO
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=30s
+
+# Ponto de partida SEM privilegios: nenhuma capability. Um modulo que precise de alguma (como o sensor
+# de rede, que captura pacotes) declara e documenta quais, e as entrega como AMBIENT aqui, nunca com
+# setcap no binario (o systemd 252 o anula) e nunca com NoNewPrivileges=no.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# So o socket do Core. Acrescente AF_INET/AF_INET6 se o modulo precisar de rede.
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+# Habilitar o modulo o inicia junto com o Core.
+WantedBy=psychoscope.service
