@@ -44,12 +44,15 @@ type Event struct {
 	Generic *psychoscopev1.EventoGenerico
 }
 
-// Kind devolve a variante do evento.
+// Kind devolve a variante do evento, ou zero se nenhuma esta preenchida (o motor o ignora).
 func (e *Event) Kind() Kind {
-	if e.Generic != nil {
+	switch {
+	case e.Net != nil:
+		return KindNet
+	case e.Generic != nil:
 		return KindGeneric
 	}
-	return KindNet
+	return 0
 }
 
 // NewEvent normaliza um EventoFluxoRede. arrival e usado quando o sensor nao informou timestamp.
@@ -57,11 +60,15 @@ func NewEvent(module string, n *psychoscopev1.EventoFluxoRede, arrival time.Time
 	return &Event{Module: module, At: instant(n.GetTimestampCaptura(), arrival), Net: n}
 }
 
-// Limites do EventoGenerico (documentados no ipc.proto).
+// Limites do EventoGenerico (os de tamanho estao no ipc.proto).
 const (
 	maxGenericAttrs     = 32
 	maxGenericNameLen   = 64
 	maxGenericValueSize = 256
+	// maxGenericSkew e o quanto o timestamp de um evento generico pode estar a frente da chegada.
+	// O relogio da janela segue os instantes dos eventos, entao um modulo com timestamp no futuro
+	// esvaziaria a janela de todos os modulos; alem da tolerancia, o evento e rejeitado.
+	maxGenericSkew = 5 * time.Minute
 )
 
 var genericNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
@@ -71,12 +78,17 @@ var ErrInvalidGeneric = errors.New("evento generico invalido")
 
 // NewGenericEvent normaliza um EventoGenerico depois de conferir os limites do contrato (tipo e
 // chaves em [a-z0-9._-] de ate 64 caracteres, ate 32 atributos, valores de ate 256 bytes).
-// Devolve ErrInvalidGeneric (embrulhado, com o motivo) se algum for violado.
+// O timestamp do modulo vale ate maxGenericSkew a frente de arrival; alem disso o evento e
+// rejeitado. Devolve ErrInvalidGeneric (embrulhado, com o motivo) se algo for violado.
 func NewGenericEvent(module string, g *psychoscopev1.EventoGenerico, arrival time.Time) (*Event, error) {
 	if err := validateGeneric(g); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidGeneric, err)
 	}
-	return &Event{Module: module, At: instant(g.GetTimestamp(), arrival), Generic: g}, nil
+	at := instant(g.GetTimestamp(), arrival)
+	if at.After(arrival.Add(maxGenericSkew)) {
+		return nil, fmt.Errorf("%w: timestamp %s mais de %s a frente da chegada", ErrInvalidGeneric, at.UTC().Format(time.RFC3339), maxGenericSkew)
+	}
+	return &Event{Module: module, At: at, Generic: g}, nil
 }
 
 func validateGeneric(g *psychoscopev1.EventoGenerico) error {

@@ -137,3 +137,88 @@ func TestSubmitGenericReportsFullQueueAndCountsIt(t *testing.T) {
 		t.Fatalf("contadores: %+v", st)
 	}
 }
+
+func TestNewGenericEventRejectsTimestampTooFarAhead(t *testing.T) {
+	cases := []struct {
+		name string
+		ts   time.Duration // em relacao a chegada
+		ok   bool
+	}{
+		{"no passado", -time.Hour, true},
+		{"na chegada", 0, true},
+		{"dentro da tolerancia", 4 * time.Minute, true},
+		{"na tolerancia", maxGenericSkew, true},
+		{"alem da tolerancia", maxGenericSkew + time.Second, false},
+		{"anos a frente", 24 * 365 * 50 * time.Hour, false},
+	}
+	for _, c := range cases {
+		g := generic("t", nil)
+		g.Timestamp = tsOf(t0.Add(c.ts))
+		ev, err := NewGenericEvent("m", g, t0)
+		switch {
+		case c.ok && err != nil:
+			t.Errorf("%s: erro inesperado: %v", c.name, err)
+		case c.ok && !ev.At.Equal(t0.Add(c.ts)):
+			t.Errorf("%s: At=%v", c.name, ev.At)
+		case !c.ok && !errors.Is(err, ErrInvalidGeneric):
+			t.Errorf("%s: esperava ErrInvalidGeneric, veio %v", c.name, err)
+		}
+	}
+}
+
+func TestFutureGenericTimestampCannotFlushTheWindow(t *testing.T) {
+	_, pub := runEngine(t, []Rule{kindRule{"r.rede", KindNet}}, func(e *Engine) {
+		submit(e, 0, "1.1.1.1")
+		g := generic("t", nil)
+		g.Timestamp = tsOf(time.Now().Add(100 * 365 * 24 * time.Hour))
+		if err := e.SubmitGeneric("mod-hostil", g); !errors.Is(err, ErrInvalidGeneric) {
+			t.Errorf("deveria rejeitar: %v", err)
+		}
+		submit(e, 1, "1.1.1.2")
+	})
+	if n := len(pub.list()); n != 2 {
+		t.Fatalf("os eventos de rede nao podem ser afetados: %d alertas", n)
+	}
+}
+
+func TestWindowByteCapBoundsHeavyGenericEvents(t *testing.T) {
+	w := NewWindow(time.Hour, 1000) // teto de bytes: 1000 * 256
+	big := map[string]string{}
+	for i := 0; i < maxGenericAttrs; i++ {
+		big["chave"+string(rune('a'+i%26))+string(rune('a'+i/26))] = strings.Repeat("x", maxGenericValueSize)
+	}
+	for i := 0; i < 500; i++ {
+		w.Add(&Event{Module: "m", At: t0.Add(time.Duration(i) * time.Second), Generic: generic("pesado", big)})
+	}
+	if w.Len() >= 500 || w.bytes > w.maxBytes {
+		t.Fatalf("o teto de bytes deveria limitar a janela: len=%d bytes=%d max=%d", w.Len(), w.bytes, w.maxBytes)
+	}
+	if got := len(w.OfType("pesado")); got != w.Len() {
+		t.Fatalf("indice e fila divergem: indice=%d fila=%d", got, w.Len())
+	}
+	// so eventos de rede continuam limitados pela contagem, como antes
+	n := NewWindow(time.Hour, 5)
+	for i := 0; i < 20; i++ {
+		n.Add(evAt(float64(i), "a", "x"))
+	}
+	if n.Len() != 5 {
+		t.Fatalf("eventos de rede: len=%d, esperado 5", n.Len())
+	}
+	// o peso volta a zero quando tudo sai
+	w.Add(evAt(100000, "z", "z"))
+	if w.Len() != 1 || w.bytes != netEventWeight {
+		t.Fatalf("contabilidade de bytes: len=%d bytes=%d", w.Len(), w.bytes)
+	}
+}
+
+func TestEventWithoutVariantHasNoKindAndReachesNoRule(t *testing.T) {
+	if (&Event{}).Kind() != 0 {
+		t.Fatal("evento sem variante nao tem Kind")
+	}
+	_, pub := runEngine(t, []Rule{kindRule{"r.rede", KindNet}, kindRule{"r.generica", KindGeneric}}, func(e *Engine) {
+		e.Submit("m", nil) // evento de rede ausente
+	})
+	if n := len(pub.list()); n != 0 {
+		t.Fatalf("nenhuma regra deve receber evento sem variante: %d alertas", n)
+	}
+}

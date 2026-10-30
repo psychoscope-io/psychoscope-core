@@ -3,13 +3,17 @@ package detection
 import "time"
 
 // Window e a janela deslizante em memoria: guarda os eventos dos ultimos `span` (no
-// tempo dos eventos) e no maximo `max` eventos, com indices por origem e destino para
-// que as regras consultem o historico de um IP sem varrer tudo.
+// tempo dos eventos), no maximo `max` eventos e no maximo `max` * netEventWeight bytes
+// estimados (um evento generico grande pesa mais que um de rede, entao o teto de bytes limita
+// a memoria mesmo com eventos grandes), com indices por origem e destino para que as regras
+// consultem o historico de um IP sem varrer tudo.
 //
 // Nao e seguro para uso concorrente: pertence a goroutine do Engine.
 type Window struct {
-	span time.Duration
-	max  int
+	span     time.Duration
+	max      int
+	maxBytes int // max * netEventWeight
+	bytes    int // peso estimado dos eventos retidos
 
 	q    []*Event // fila global em ordem de chegada
 	head int
@@ -29,7 +33,7 @@ func (k *keyQueue) len() int { return len(k.evs) - k.head }
 
 // NewWindow cria uma janela de duracao span e capacidade max eventos.
 func NewWindow(span time.Duration, max int) *Window {
-	return &Window{span: span, max: max, bySrc: map[string]*keyQueue{}, byDst: map[string]*keyQueue{}, byType: map[string]*keyQueue{}}
+	return &Window{span: span, max: max, maxBytes: max * netEventWeight, bySrc: map[string]*keyQueue{}, byDst: map[string]*keyQueue{}, byType: map[string]*keyQueue{}}
 }
 
 // Now devolve o relogio da janela (maior instante de evento ja visto).
@@ -48,14 +52,33 @@ func (w *Window) SetSpan(span time.Duration) {
 	w.evict()
 }
 
-// FromSrc devolve, em ordem de chegada, os eventos retidos cuja origem e ip.
+// netEventWeight e o peso estimado de um evento de rede retido, em bytes. E o que torna o teto
+// de bytes igual ao de eventos quando so ha eventos de rede.
+const netEventWeight = 256
+
+// weight estima quanto o evento retido ocupa: fixo para rede, e proporcional ao conteudo para
+// generico (tipo, chaves e valores, mais um custo fixo por entrada).
+func weight(e *Event) int {
+	if e.Generic == nil {
+		return netEventWeight
+	}
+	n := netEventWeight/2 + len(e.Generic.GetTipo())
+	for k, v := range e.Generic.GetAtributos() {
+		n += len(k) + len(v) + 32
+	}
+	return n
+}
+
+// FromSrc devolve, em ordem de chegada, os eventos de rede retidos (de todos os modulos; filtre
+// por Event.Module se precisar de um so) cuja origem e ip.
 // A fatia e somente leitura e so e valida ate o proximo Add.
 func (w *Window) FromSrc(ip string) []*Event { return view(w.bySrc[ip]) }
 
-// ToDst devolve, em ordem de chegada, os eventos retidos cujo destino e ip.
+// ToDst devolve, em ordem de chegada, os eventos de rede retidos (de todos os modulos) cujo destino e ip.
 func (w *Window) ToDst(ip string) []*Event { return view(w.byDst[ip]) }
 
-// OfType devolve, em ordem de chegada, os eventos genericos retidos do tipo dado.
+// OfType devolve, em ordem de chegada, os eventos genericos retidos (de todos os modulos; filtre
+// por Event.Module se precisar de um so) do tipo dado.
 // A fatia e somente leitura e so e valida ate o proximo Add.
 func (w *Window) OfType(tipo string) []*Event { return view(w.byType[tipo]) }
 
@@ -75,6 +98,7 @@ func (w *Window) Add(e *Event) {
 	}
 	w.q = append(w.q, e)
 	w.index(e)
+	w.bytes += weight(e)
 	if e.At.After(w.now) {
 		w.now = e.At
 	}
@@ -115,11 +139,12 @@ func (w *Window) evict() {
 	cutoff := w.now.Add(-w.span)
 	for w.Len() > 0 {
 		front := w.q[w.head]
-		if w.Len() <= w.max && !front.At.Before(cutoff) {
+		if w.Len() <= w.max && w.bytes <= w.maxBytes && !front.At.Before(cutoff) {
 			break
 		}
 		w.q[w.head] = nil
 		w.head++
+		w.bytes -= weight(front)
 		w.unindex(front)
 	}
 	if w.head > 1024 && w.head*2 > len(w.q) {

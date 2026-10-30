@@ -58,3 +58,14 @@ func TestTelemetrySinkRoutesGenericEventsToTheEngine(t *testing.T) {
 		t.Fatalf("o evento invalido deveria ser contado como rejeitado: %+v", st)
 	}
 }
+
+func TestTelemetrySinkIgnoresEmptyNetworkVariant(t *testing.T) {
+	eng := detection.NewEngine(detection.EngineConfig{Window: time.Minute}, nil, countingPub{alerts: make(chan *psychoscopev1.Alerta, 1)})
+	sink := &telemetrySink{engine: eng, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	sink.OnTelemetry(&ipc.Session{ID: "mod-g"}, &psychoscopev1.EventoTelemetria{
+		Dado: &psychoscopev1.EventoTelemetria_Rede{Rede: nil}})
+	sink.OnTelemetry(&ipc.Session{ID: "mod-g"}, &psychoscopev1.EventoTelemetria{}) // sem variante
+	if st := eng.Stats(); st.Received != 0 || st.Rejected != 0 {
+		t.Fatalf("nada deveria ser enfileirado: %+v", st)
+	}
+}
