@@ -26,6 +26,22 @@ func sensorModules(specs []config.ModuleSpec) []config.ModuleSpec {
 	return out
 }
 
+// externalSensorFinding explica que o sensor mantido pelo systemd nao e verificado aqui: o
+// --check precisa rodar como o usuario e com as capabilities da unit, e o doctor nao as tem.
+func externalSensorFinding(s config.ModuleSpec) finding {
+	return finding{Level: levelSkip, Item: "sensor " + s.ID,
+		Detail: "modulo externo (usuario " + s.User + "): o --check do sensor nao foi executado",
+		Fix:    "systemctl status psychoscope-sensor e journalctl -u psychoscope-sensor -n 50"}
+}
+
+// launchedSensorFinding avisa que o sensor lancado pelo Core nao captura sob a unit instalada,
+// que roda o Core sem capabilities; fora do systemd (desenvolvimento, sudo) isso e legitimo.
+func launchedSensorFinding(s config.ModuleSpec) finding {
+	return finding{Level: levelWarn, Item: "sensor " + s.ID,
+		Detail: "o Core lanca o sensor; sob a unit systemd instalada (Core sem capabilities) a captura falha",
+		Fix:    "sudo psychoscope-cli migrate-config && sudo systemctl daemon-reload && sudo systemctl restart psychoscope"}
+}
+
 // sensorFindings converte a saida do `--check` do sensor (linhas `[ok]`, `[aviso]`, `[falha]` e
 // `como corrigir:`) em achados. A saida e entrada nao confiavel: so as linhas conhecidas contam,
 // truncadas, e no maximo maxSensorFindings.

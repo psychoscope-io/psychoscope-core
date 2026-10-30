@@ -10,6 +10,9 @@
 //     deixe o conector como processo-neto;
 //   - o filho deve enviar StatusModulo periodicamente (heartbeat) e reconectar
 //     se a conexao cair.
+//
+// Um modulo External nao e lancado aqui: o systemd o mantem, com as proprias capabilities e
+// usuario, e o supervisor so o autentica (UID do kernel) e acompanha a conexao (external.go).
 package supervisor
 
 import (
@@ -45,6 +48,7 @@ type Options struct {
 	SocketPath     string // repassado aos filhos em PSYCHOSCOPE_SOCKET
 	UIDs           ipc.UIDPolicy
 	AllowUnmanaged bool
+	ExternalUIDs   map[string]uint32 // id do modulo External -> UID do usuario do servico
 	Logger         *slog.Logger
 }
 
@@ -114,6 +118,9 @@ type managed struct {
 	lastDisc    time.Time
 	sess        *ipc.Session
 	paused      bool
+	uid         uint32 // External: UID do usuario do servico
+	hasUID      bool
+	stopping    bool // External: ENCERRAR foi confirmado; a proxima desconexao e esperada
 }
 
 // New cria o supervisor (nada e lancado ate Run).
@@ -124,10 +131,12 @@ func New(opt Options) *Supervisor {
 	}
 	s := &Supervisor{opt: opt, log: opt.Logger, mods: map[string]*managed{}}
 	for _, sp := range opt.Specs {
-		s.mods[sp.ID] = &managed{
-			spec: sp, cycle: newCycle(),
-			state: psychoscopev1.EstadoModulo_ESTADO_DESCONHECIDO,
+		uid, hasUID := opt.ExternalUIDs[sp.ID]
+		state := psychoscopev1.EstadoModulo_ESTADO_DESCONHECIDO
+		if sp.External {
+			state = psychoscopev1.EstadoModulo_ESTADO_INICIANDO // aguardando o systemd e a conexao
 		}
+		s.mods[sp.ID] = &managed{spec: sp, cycle: newCycle(), uid: uid, hasUID: hasUID && sp.External, state: state}
 		s.order = append(s.order, sp.ID)
 	}
 	return s
@@ -141,6 +150,9 @@ func (s *Supervisor) Run(ctx context.Context) {
 	s.runCtx = ctx
 	for _, id := range s.order {
 		m := s.mods[id]
+		if m.spec.External {
+			continue // mantido pelo systemd: so espera a conexao
+		}
 		s.launch(ctx, m, m.currentCycle())
 	}
 	s.mu.Unlock()
@@ -183,6 +195,9 @@ func (s *Supervisor) Stop(ctx context.Context, id string) error {
 	if !ok {
 		return ErrUnknownModule
 	}
+	if m.spec.External {
+		return s.stopExternal(ctx, m)
+	}
 	cy := m.currentCycle()
 	cy.stop()
 	select {
@@ -211,6 +226,9 @@ func (s *Supervisor) Command(ctx context.Context, id string, acao psychoscopev1.
 	m.mu.Lock()
 	sess := m.sess
 	m.mu.Unlock()
+	if sess == nil && m.spec.External {
+		return ErrExternalOffline
+	}
 	if sess == nil {
 		if !m.currentCycle().isFinished() {
 			return ErrNotConnected

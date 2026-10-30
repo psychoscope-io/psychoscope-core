@@ -81,6 +81,18 @@ func TestLoadModulesAndDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadExternalModule(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "c.json")
+	os.WriteFile(file, []byte(`{"modules":[{"id":"mod-net-sensor","external":true,"user":"psychoscope-sensor"}]}`), 0o600)
+	c, err := Load([]string{"-config", file}, env(0, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := c.Modules[0]; !m.External || m.User != "psychoscope-sensor" || m.Path != "" {
+		t.Errorf("modulo externo mal carregado: %+v", m)
+	}
+}
+
 func TestLoadRejects(t *testing.T) {
 	dir := t.TempDir()
 	write := func(s string) string {
@@ -96,6 +108,11 @@ func TestLoadRejects(t *testing.T) {
 		"id duplicado":                 `{"modules":[{"id":"a","path":"/x"},{"id":"a","path":"/y"}]}`,
 		"sem path":                     `{"modules":[{"id":"a"}]}`,
 		"backoff invertido":            `{"modules":[{"id":"a","path":"/x","restart_min_backoff":"10s","restart_max_backoff":"1s"}]}`,
+		"external sem user":            `{"modules":[{"id":"a","external":true}]}`,
+		"external com path":            `{"modules":[{"id":"a","external":true,"user":"psychoscope-sensor","path":"/x"}]}`,
+		"external com args":            `{"modules":[{"id":"a","external":true,"user":"psychoscope-sensor","args":["-i","eth0"]}]}`,
+		"user sem external":            `{"modules":[{"id":"a","path":"/x","user":"psychoscope-sensor"}]}`,
+		"user invalido":                `{"modules":[{"id":"a","external":true,"user":"Bad User"}]}`,
 		"duracao invalida":             `{"status_interval":"5 segundos"}`,
 		"log invalido":                 `{"log_level":"trace"}`,
 		"sockets iguais":               `{"socket":"/a","ctl_socket":"/a"}`,

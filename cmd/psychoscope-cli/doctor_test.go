@@ -379,3 +379,24 @@ func TestReportCountsIgnoreSkipped(t *testing.T) {
 		t.Errorf("counts = %d, %d", f, w)
 	}
 }
+
+func TestDoctorSensorExternalIsNotCheckedAndLaunchedSensorWarns(t *testing.T) {
+	cl := doctorServer(t, []supervisor.Info{healthy("mod-net-sensor")}, ipc.NewUIDPolicy(uint32(os.Geteuid()), nil))
+	env := &fakeEnv{specs: []config.ModuleSpec{{ID: "mod-net-sensor", External: true, User: "psychoscope-sensor"}}}
+	out, err := runDoctor(t, cl, env, "--sensor", "--config", "/tmp/x.json")
+	if err != nil || len(env.checked) != 0 {
+		t.Fatalf("o sensor externo nao e executado pelo doctor, err=%v checked=%v\n%s", err, env.checked, out)
+	}
+	if !strings.Contains(out, "modulo externo (usuario psychoscope-sensor)") || !strings.Contains(out, "journalctl -u psychoscope-sensor") {
+		t.Errorf("saida:\n%s", out)
+	}
+	if strings.Contains(out, "nenhum modulo") {
+		t.Errorf("o sensor externo conta como sensor configurado:\n%s", out)
+	}
+
+	env = &fakeEnv{specs: []config.ModuleSpec{{ID: "mod-net-sensor", Path: "/usr/local/bin/mod-net-sensor"}}}
+	out, err = runDoctor(t, cl, env, "--sensor", "--config", "/tmp/x.json")
+	if err != nil || !strings.Contains(out, "migrate-config") {
+		t.Errorf("sensor lancado pelo Core deve apontar a migracao (so aviso), err=%v\n%s", err, out)
+	}
+}

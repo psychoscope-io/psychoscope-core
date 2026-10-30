@@ -9,6 +9,7 @@
 //	psychoscope-cli [--ctl-socket S] config [set|reset ...] configuracao editavel em tempo de execucao
 //	psychoscope-cli [--ctl-socket S] doctor [--sensor] [--json] diagnostico da instalacao (sai com 1 se houver falha)
 //	psychoscope-cli analyze [--set k=v] [--json] arquivo.pcap analise offline de um pcap, sem o servico (nao usa o Core)
+//	psychoscope-cli migrate-config [--config arq] [--sensor-env arq] [--user nome] migra o sensor da configuracao antiga (modulo externo)
 package main
 
 import (
@@ -48,6 +49,9 @@ const usage = `uso: psychoscope-cli [--ctl-socket S] [comando]
   analyze [--set campo=valor]... [--rule R] [--config arq] [--json] [--fail-on-alert] arquivo.pcap
                                       analisa um pcap sem o servico (precisa do mod-net-sensor; --set testa um ajuste;
                                       sai com 2 se --fail-on-alert e houver alertas)
+  migrate-config [--config arq] [--sensor-env arq] [--user nome]
+                                      passa o sensor lancado pelo Core (configuracao ate a 0.11) para o modulo
+                                      externo da unit psychoscope-sensor (so root; o install.sh ja chama)
   --version                           versao`
 
 var actions = map[string]psychoscopev1.ComandoControle_TipoAcao{
@@ -111,6 +115,8 @@ func run(ctx context.Context, cl *ctl.Client, args []string, out io.Writer) erro
 		return cmdDoctor(ctx, cl, args[1:], out)
 	case "analyze":
 		return cmdAnalyze(ctx, args[1:], out)
+	case "migrate-config":
+		return cmdMigrateConfig(args[1:], out)
 	}
 	return fmt.Errorf("subcomando desconhecido %q\n%s", args[0], usage)
 }

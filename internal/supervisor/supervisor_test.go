@@ -51,11 +51,14 @@ type env struct {
 
 func setup(t *testing.T, allowUnmanaged bool, specs ...config.ModuleSpec) *env {
 	t.Helper()
+	return setupOptions(t, Options{Specs: specs, AllowUnmanaged: allowUnmanaged, UIDs: ipc.NewUIDPolicy(uint32(os.Geteuid()), nil)})
+}
+
+func setupOptions(t *testing.T, opt Options) *env {
+	t.Helper()
 	sock := filepath.Join(t.TempDir(), "core.sock")
-	sup := New(Options{
-		Specs: specs, SocketPath: sock, AllowUnmanaged: allowUnmanaged,
-		UIDs: ipc.NewUIDPolicy(uint32(os.Geteuid()), nil),
-	})
+	opt.SocketPath = sock
+	sup := New(opt)
 	srv, err := ipc.NewServer(ipc.ServerConfig{
 		Path: sock, Auth: sup, Handler: ipc.Handlers(sup),
 		StatusInterval: time.Second, CommandTimeout: 2 * time.Second,

@@ -12,7 +12,8 @@ import (
 // assumir o id de um modulo) e um ipc.Handler (acompanha conexao e desconexao).
 
 // Authorize aceita apenas UIDs permitidos e, para modulos gerenciados, apenas o
-// PID do filho lancado por este supervisor.
+// PID do filho lancado por este supervisor. Um modulo External (mantido pelo systemd) so
+// e aceito com o UID exato do usuario configurado: nem root, nem o UID do Core.
 func (s *Supervisor) Authorize(h *psychoscopev1.HelloModulo, cred ipc.PeerCred) error {
 	if !s.opt.UIDs.Allows(cred.UID) {
 		return fmt.Errorf("uid %d nao permitido", cred.UID)
@@ -23,6 +24,9 @@ func (s *Supervisor) Authorize(h *psychoscopev1.HelloModulo, cred ipc.PeerCred) 
 			return nil
 		}
 		return fmt.Errorf("modulo %q nao esta configurado", h.IdModulo)
+	}
+	if m.spec.External {
+		return authorizeExternal(m, h.IdModulo, cred)
 	}
 	m.mu.Lock()
 	pid := m.pid
@@ -41,8 +45,12 @@ func (s *Supervisor) OnConnect(sess *ipc.Session) {
 	m.set(func() {
 		m.sess = sess
 		m.paused = false
+		m.stopping = false
 		m.state = psychoscopev1.EstadoModulo_ESTADO_CONECTADO
 		m.lastContact = time.Now()
+		if m.spec.External {
+			m.pid = int(sess.Cred.PID) // o Core nao o lancou: o PID vem do kernel (SO_PEERCRED)
+		}
 	})
 }
 
@@ -64,6 +72,11 @@ func (s *Supervisor) OnDisconnect(sess *ipc.Session, err error) {
 		m.lastContact = sess.LastSeen()
 		if err != nil {
 			m.lastErr = err.Error()
+		}
+		if m.spec.External {
+			m.pid = 0
+			m.state = externalStateAfterDisconnect(m.stopping)
+			return
 		}
 		if m.pid != 0 && m.state == psychoscopev1.EstadoModulo_ESTADO_CONECTADO {
 			m.state = psychoscopev1.EstadoModulo_ESTADO_INICIANDO // vivo, aguardando reconexao

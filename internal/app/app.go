@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/user"
 	"sync"
 	"time"
 
@@ -94,15 +95,19 @@ func (d *daemon) assemble(ctx context.Context) error {
 	if err := d.openStore(ctx); err != nil {
 		return err
 	}
-	policy := ipc.NewUIDPolicy(uint32(os.Geteuid()), d.cfg.AllowedUIDs) //nolint:gosec // UID do kernel nao e negativo
+	external, err := externalUIDs(d.cfg.Modules, user.Lookup)
+	if err != nil {
+		return err
+	}
+	modules, control := uidPolicies(uint32(os.Geteuid()), d.cfg.AllowedUIDs, external) //nolint:gosec // UID do kernel nao e negativo
 	d.sup = supervisor.New(supervisor.Options{
-		Specs: d.cfg.Modules, SocketPath: d.cfg.SocketPath, UIDs: policy,
+		Specs: d.cfg.Modules, SocketPath: d.cfg.SocketPath, UIDs: modules, ExternalUIDs: external,
 		AllowUnmanaged: d.cfg.AllowUnmanaged, Logger: d.log.With("componente", "supervisor"),
 	})
 	if err := d.buildEngine(); err != nil {
 		return err
 	}
-	return d.buildServers(policy)
+	return d.buildServers(control)
 }
 
 func (d *daemon) closeStore() {

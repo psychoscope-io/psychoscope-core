@@ -110,13 +110,18 @@ func (d doctorRun) checkSensors(ctx context.Context, configPath string) report {
 		return report{{Level: levelWarn, Item: "configuracao", Detail: truncate(err.Error(), maxSensorLine),
 			Fix: "informe o arquivo com --config; ele costuma ser legivel so pelo grupo psychoscope (rode com sudo)"}}
 	}
+	var rep report
+	for _, s := range specs {
+		if s.External && s.ID == sensorBinary {
+			rep = append(rep, externalSensorFinding(s))
+		}
+	}
 	sensors := sensorModules(specs)
-	if len(sensors) == 0 {
+	if len(sensors) == 0 && len(rep) == 0 {
 		return report{{Level: levelWarn, Item: "sensor", Detail: "nenhum modulo " + sensorBinary + " em " + configPath}}
 	}
-	var rep report
 	for _, s := range sensors {
-		rep = append(rep, finding{Item: "sensor " + s.ID,
+		rep = append(rep, launchedSensorFinding(s), finding{Item: "sensor " + s.ID,
 			Detail: fmt.Sprintf("o --check roda como %s, nao como o servico; para reproduzir o servico: sudo -u psychoscope %s %s --check",
 				currentUser(), s.Path, strings.Join(s.Args, " "))})
 		out, runErr := d.env.SensorCheck(ctx, s.Path, s.Args)
