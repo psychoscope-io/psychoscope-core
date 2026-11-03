@@ -8,6 +8,7 @@
 #   DISTROS="fedora:latest" deploy/test_distros.sh  # so uma
 #   OLD_CORE=0.11.0 OLD_SENSOR=0.3.1 deploy/test_distros.sh   # versoes de partida da atualizacao
 #   LOCAL_BUILD=0 deploy/test_distros.sh            # atualiza para a ULTIMA RELEASE publicada
+#   MOD_EXAMPLE_BIN=../mod-example/dist/mod-example deploy/test_distros.sh   # tambem instala o modulo de exemplo pelo molde de unit
 #   KEEP=1 deploy/test_distros.sh                   # nao remove conteineres nem imagens de teste
 #
 # Por distribuicao: instala a versao de partida pelo get.sh publicado (usuario comum + sudo), sobe o
@@ -31,6 +32,7 @@ LOCAL_BUILD="${LOCAL_BUILD:-1}"
 LOCAL_CORE_VERSION="${LOCAL_CORE_VERSION:-99.0.0}"
 NEW_SENSOR="${NEW_SENSOR:-}"
 KEEP="${KEEP:-0}"
+MOD_EXAMPLE_BIN="${MOD_EXAMPLE_BIN:-}" # binario estatico (linux/amd64) do mod-example; vazio = nao testa o molde de modulo
 GH=https://github.com/psychoscope-io
 command -v docker >/dev/null || { echo "docker nao encontrado" >&2; exit 2; }
 
@@ -145,6 +147,28 @@ upgrade() {
   fi
 }
 
+# module_example instala o mod-example como modulo externo, pela unit gerada do molde
+# deploy/systemd/psychoscope-module.service.example, e confere o isolamento, a regra generic.burst, os
+# comandos e o ENCERRAR sob o systemd de verdade. Roda dentro de run_distro (usa $C).
+module_example() {
+  docker cp "$MOD_EXAMPLE_BIN" "$C:/usr/local/bin/mod-example" && x 'chmod 755 /usr/local/bin/mod-example'
+  docker cp "$HERE/systemd/psychoscope-module.service.example" "$C:/root/molde.service"
+  check "usuario do modulo criado" 'useradd --system --user-group --no-create-home --shell /usr/sbin/nologin psychoscope-example'
+  # o molde com MODULO trocado; so o ExecStart muda, para acelerar a rajada
+  check "unit gerada do molde" "sed -e 's/MODULO/example/g' -e 's#^ExecStart=.*#ExecStart=/usr/local/bin/mod-example --id mod-example --rate 2 --burst-every 3s --burst-size 12#' /root/molde.service > /etc/systemd/system/psychoscope-example.service && systemctl daemon-reload"
+  check "modulo declarado em psychoscope.json" "sed -i 's/\"modules\": \\[/\"modules\": [ { \"id\": \"mod-example\", \"external\": true, \"user\": \"psychoscope-example\" },/' /etc/psychoscope/psychoscope.json && grep -q mod-example /etc/psychoscope/psychoscope.json"
+  check "regra generic.burst ligada ao tipo login.falha" '/usr/local/bin/psychoscope-cli config set detection.generic_burst.types=login.falha detection.generic_burst.group_by=usuario detection.generic_burst.min_events=10 >/dev/null'
+  check "Core reiniciado com o novo modulo" 'systemctl restart psychoscope && systemctl enable --now psychoscope-example'
+  waitfor "unit do modulo ativa" 30 'systemctl is-active --quiet psychoscope-example'
+  waitfor "modulo conectado ao Core" 40 '/usr/local/bin/psychoscope-cli list | grep mod-example | grep -q CONECTADO'
+  check "modulo roda com usuario proprio, sem capability e com NoNewPrivs" 'p=$(systemctl show -p MainPID --value psychoscope-example); [ "$(ps -o user= -p $p | tr -d " ")" = psychoscope-example ] && grep -Eq "^NoNewPrivs:[[:space:]]+1" /proc/$p/status && grep -Eq "^CapEff:[[:space:]]+0+$" /proc/$p/status'
+  check "modulo nao usa o ctl.sock nem le o banco de alertas" '! runuser -u psychoscope-example -- /usr/local/bin/psychoscope-cli list && ! runuser -u psychoscope-example -- test -r /var/lib/psychoscope/alerts.db'
+  check "PACOTES mostra '-' para o modulo sem pacotes" '/usr/local/bin/psychoscope-cli list | awk "/mod-example/{print \$6}" | grep -qx -'
+  waitfor "alerta generic.burst gravado" 60 '/usr/local/bin/psychoscope-cli alerts --history | grep -q generic.burst'
+  check "ENCERRAR: o modulo sai com sucesso e o systemd nao o reinicia" '/usr/local/bin/psychoscope-cli cmd mod-example stop >/dev/null; sleep 4; [ "$(systemctl is-active psychoscope-example)" = inactive ] && [ "$(systemctl show -p Result --value psychoscope-example)" = success ]'
+  check "modulo volta com o Core (WantedBy=psychoscope.service)" 'systemctl start psychoscope-example && for i in $(seq 40); do /usr/local/bin/psychoscope-cli list | grep mod-example | grep -q CONECTADO && exit 0; sleep 1; done; exit 1'
+}
+
 run_distro() {
   local base="$1" tag
   tag="$(echo "$base" | tr ':/' '--')"
@@ -216,6 +240,11 @@ run_distro() {
   [ "$had_history" = 1 ] && check "historico de alertas da versao anterior preservado" '/usr/local/bin/psychoscope-cli alerts --history | grep -q net.scan.syn'
   scan_until 192.0.2.1 'de 192.0.2.1' # destino de documentacao: distingue do alerta da versao anterior
   check "doctor sem falhas" '/usr/local/bin/psychoscope-cli doctor'
+
+  if [ -n "$MOD_EXAMPLE_BIN" ]; then
+    echo "- modulo de exemplo pelo molde de unit (systemd real)"
+    module_example
+  fi
 
   echo "- reinstalacao (--force) preserva configuracao, ajustes e historico"
   x 'sha256sum /etc/psychoscope/psychoscope.json /etc/psychoscope/sensor.env /var/lib/psychoscope/overrides.json > /root/antes2.sha'
