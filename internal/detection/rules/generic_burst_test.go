@@ -1,8 +1,10 @@
 package rules
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/psychoscope-io/psychoscope-core/internal/detection"
 	"github.com/psychoscope-io/psychoscope-core/internal/detection/ruletest"
@@ -163,5 +165,54 @@ func TestSuggestedExceptionForGenericBurst(t *testing.T) {
 	}
 	if _, _, ok := Exception(as[0]); ok {
 		t.Error("com mais de um atributo em group_by nao ha excecao inequivoca para sugerir")
+	}
+}
+
+func TestGenericBurstKeysNeverCollideAcrossGroups(t *testing.T) {
+	cfg := Default().GenericBurst
+	cfg.Types, cfg.GroupBy = []string{"t"}, []string{"a", "b"}
+	r := NewGenericBurst(cfg)
+	ev := func(a, b string) *detection.Event {
+		return &detection.Event{Module: "m", Generic: &psychoscopev1.EventoGenerico{Tipo: "t", Atributos: map[string]string{"a": a, "b": b}}}
+	}
+	k1, _ := r.Key(ev("x|y", "z"))
+	k2, _ := r.Key(ev("x", "y|z"))
+	k3, _ := r.Key(ev("x", "y"))
+	if k1 == k2 || k1 == k3 || k2 == k3 {
+		t.Fatalf("chaves de grupos diferentes colidiram: %q %q %q", k1, k2, k3)
+	}
+}
+
+func TestGenericBurstStateIsBoundedByMaxKeys(t *testing.T) {
+	cfg := Default().GenericBurst
+	cfg.Types, cfg.GroupBy, cfg.MaxKeys = []string{"t"}, []string{"usuario"}, 100
+	r := NewGenericBurst(cfg)
+	for i := 0; i < 5000; i++ {
+		ev := &detection.Event{Module: "m", At: ruletest.T0.Add(time.Duration(i) * time.Millisecond),
+			Generic: &psychoscopev1.EventoGenerico{Tipo: "t", Atributos: map[string]string{"usuario": fmt.Sprint("u", i)}}}
+		r.Eval(ev, nil)
+		if len(r.series) > cfg.MaxKeys {
+			t.Fatalf("o estado passou do teto: %d series", len(r.series))
+		}
+	}
+	// um grupo novo e acompanhado normalmente depois do despejo
+	var alerts int
+	for i := 0; i < cfg.MinEvents; i++ {
+		ev := &detection.Event{Module: "m", At: ruletest.T0.Add(10*time.Second + time.Duration(i)*time.Millisecond),
+			Generic: &psychoscopev1.EventoGenerico{Tipo: "t", Atributos: map[string]string{"usuario": "alvo"}}}
+		if r.Eval(ev, nil) != nil {
+			alerts++
+		}
+	}
+	if alerts != 1 {
+		t.Fatalf("a rajada de um grupo novo deveria alertar uma vez: %d", alerts)
+	}
+}
+
+func TestGenericBurstMaxKeysValidation(t *testing.T) {
+	c := Default()
+	c.GenericBurst.MaxKeys = 99
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "max_keys") {
+		t.Errorf("max_keys abaixo de 100 deveria ser recusado: %v", err)
 	}
 }

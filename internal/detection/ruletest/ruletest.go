@@ -98,7 +98,7 @@ func (c *collector) Publish(a *psychoscopev1.Alerta) {
 
 // Run entrega os eventos, na ordem, a um motor de verdade com as regras dadas e devolve os alertas
 // publicados. Falha o teste se um evento for rejeitado ou a fila encher.
-func Run(t *testing.T, rules []detection.Rule, in ...Input) []*psychoscopev1.Alerta {
+func Run(t testing.TB, rules []detection.Rule, in ...Input) []*psychoscopev1.Alerta {
 	t.Helper()
 	pub := &collector{}
 	eng := detection.NewEngine(detection.EngineConfig{Window: DefaultWindow, QueueSize: len(in) + 1}, rules, pub)

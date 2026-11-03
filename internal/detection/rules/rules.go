@@ -116,6 +116,7 @@ type GenericBurstConfig struct {
 	MinEvents    int           `json:"min_events" label:"Eventos mínimos" doc:"Eventos do mesmo módulo, tipo e grupo na janela para alertar."`
 	Window       time.Duration `json:"window" label:"Janela de contagem" doc:"Janela em que os eventos são contados."`
 	Cooldown     time.Duration `json:"cooldown" keepstate:"true" label:"Intervalo entre alertas" doc:"Tempo sem repetir o alerta para o mesmo módulo, tipo e grupo."`
+	MaxKeys      int           `json:"max_keys" keepstate:"true" label:"Máx. de grupos acompanhados" doc:"Teto de grupos (módulo, tipo e atributos) acompanhados ao mesmo tempo; os menos recentes são despejados."`
 	IgnoreGroups []string      `json:"ignore_groups" keepstate:"true" label:"Grupos ignorados" doc:"Valores dos atributos de group_by isentos (uma conta de serviço, por exemplo): um evento com algum desses valores não conta."`
 }
 
@@ -148,7 +149,7 @@ func Default() Config {
 		BruteForce: BruteForceConfig{Window: 30 * time.Second, MinAttempts: 10, Ports: []int{21, 22, 23, 445, 3389, 5900},
 			Cooldown: 5 * time.Minute},
 		ICMPSweep:    ICMPSweepConfig{Window: 10 * time.Second, MinHosts: 20, Cooldown: time.Minute},
-		GenericBurst: GenericBurstConfig{MinEvents: 10, Window: time.Minute, Cooldown: 5 * time.Minute},
+		GenericBurst: GenericBurstConfig{MinEvents: 10, Window: time.Minute, Cooldown: 5 * time.Minute, MaxKeys: 10_000},
 	}
 }
 
@@ -163,10 +164,10 @@ func (c *Config) Sections() map[string]any {
 }
 
 // LongestWindow devolve a maior janela que as regras consultam na janela deslizante do
-// motor; detection.window precisa cobri-la. (Beacon tem estado proprio e nao entra.)
+// motor; detection.window precisa cobri-la. (Beacon e generic.burst tem estado proprio e nao entram.)
 func (c Config) LongestWindow() time.Duration {
 	return max(c.Scan.Window, c.NXDomain.Window, c.Tunnel.Window, c.DNSRate.Window,
-		c.TLS.MissingSNIWindow, c.BruteForce.Window, c.ICMPSweep.Window, c.GenericBurst.Window)
+		c.TLS.MissingSNIWindow, c.BruteForce.Window, c.ICMPSweep.Window)
 }
 
 // Validate verifica a coerencia dos limiares e dos nomes desabilitados.
@@ -280,6 +281,9 @@ func (b BeaconConfig) validate() error {
 // validate confere que tipos e atributos tem a forma que o contrato aceita para o EventoGenerico
 // (um tipo fora dela seria rejeitado antes de chegar a regra).
 func (g GenericBurstConfig) validate() error {
+	if g.MaxKeys < 100 {
+		return fmt.Errorf("detection.generic_burst.max_keys deve ser pelo menos 100")
+	}
 	for name, list := range map[string][]string{"types": g.Types, "group_by": g.GroupBy} {
 		for _, s := range list {
 			if !genericNameRe.MatchString(s) {

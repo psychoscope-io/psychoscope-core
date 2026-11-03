@@ -236,7 +236,7 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 
 **Por que importa.** Uma rajada de um mesmo evento costuma ser o sinal de algo que o módulo observa: tentativas de login que falham, acessos negados, erros repetidos. O Core não sabe o que o tipo significa; quem escolhe o que vigiar é o operador, que conhece o módulo.
 
-**Padrões.** `types` vazio (inativa); `group_by` vazio; ≥10 eventos do mesmo módulo, tipo e grupo; janela 1 min; cooldown 5 min.
+**Padrões.** `types` vazio (inativa); `group_by` vazio; ≥10 eventos do mesmo módulo, tipo e grupo; janela 1 min; cooldown 5 min; acompanha até 10.000 grupos ao mesmo tempo (`max_keys`).
 
 **Técnica MITRE ATT&CK.** Sem técnica equivalente: o tipo do evento é definido por cada módulo, então a regra não tem como saber qual comportamento a rajada representa.
 
@@ -248,6 +248,6 @@ Os ajustes ficam em `overrides.json`, por cima do arquivo do administrador. Deta
 - Rajadas legítimas do próprio módulo: sincronização inicial, reprocessamento de fila, execução de testes de carga.
 - Contas de serviço ou automações que falham em ciclos previsíveis (uma credencial expirada, por exemplo).
 
-**Como ajustar.** Escolha os tipos (`types`) e o agrupamento (`group_by`) que fazem sentido para o módulo; suba `min_events` ou a `window` para tolerar rajadas maiores. Para ignorar uma conta ou origem conhecida, `ignore_groups` aceita os valores dos atributos de `group_by`; com um único atributo, a tecla `i` do alerta sugere o valor. A contagem examina só os eventos retidos na janela do motor (`detection.window`), então uma `window` maior que ela não vale.
+**Como ajustar.** Escolha os tipos (`types`) e o agrupamento (`group_by`) que fazem sentido para o módulo; suba `min_events` ou a `window` para tolerar rajadas maiores. Para ignorar uma conta ou origem conhecida, `ignore_groups` aceita os valores dos atributos de `group_by`; com um único atributo, a tecla `i` do alerta sugere o valor. A regra mantém uma série de instantes por grupo (custo constante por evento, mesmo com um módulo muito falante) e despeja os grupos menos recentes ao passar de `max_keys`; ao contrário das regras de rede, ela não usa a janela do motor, então `window` pode ser maior que `detection.window`. O estado não sobrevive a um reinício do Core nem a uma mudança de configuração desta regra: a contagem recomeça.
 
 ---

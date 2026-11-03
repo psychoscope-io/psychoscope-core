@@ -213,7 +213,7 @@ Para montar o ambiente inteiro (clonar proto, core e sensor, atualizar e compila
     "beacon":     { "min_samples": 8, "min_interval": "5s", "max_interval": "1h", "max_cv": 0.2, "max_keys": 50000, "cooldown": "30m", "ignore_domains": [], "ignore_ports": [], "ignore_destinations": ["203.0.113.0/24"] },
     "bruteforce": { "window": "30s", "min_attempts": 10, "ports": [21, 22, 23, 445, 3389, 5900], "cooldown": "5m", "ignore_sources": ["10.9.0.0/16"] },
     "icmp_sweep": { "window": "10s", "min_hosts": 20, "cooldown": "60s" },
-    "generic_burst": { "types": [], "group_by": [], "min_events": 10, "window": "60s", "cooldown": "5m", "ignore_groups": [] }
+    "generic_burst": { "types": [], "group_by": [], "min_events": 10, "window": "60s", "cooldown": "5m", "max_keys": 10000, "ignore_groups": [] }
   }
 }
 ```

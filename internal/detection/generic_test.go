@@ -222,3 +222,20 @@ func TestEventWithoutVariantHasNoKindAndReachesNoRule(t *testing.T) {
 		t.Fatalf("nenhuma regra deve receber evento sem variante: %d alertas", n)
 	}
 }
+
+func TestNewGenericEventRejectsControlCharactersAndInvalidUTF8InValues(t *testing.T) {
+	for name, v := range map[string]string{
+		"escape de terminal": "\x1b[2J\x1b[31mX", "quebra de linha": "ana\nroot", "tabulacao": "a\tb", "NUL": "a\x00b",
+		"DEL": "a\x7fb", "UTF-8 invalido": "a\xffb", "controle C1": "a\u009bb",
+	} {
+		_, err := NewGenericEvent("m", generic("t", map[string]string{"usuario": v}), t0)
+		if !errors.Is(err, ErrInvalidGeneric) {
+			t.Errorf("%s: deveria ser rejeitado: %v", name, err)
+		}
+	}
+	for name, v := range map[string]string{"acentos": "João da Conceição", "japones": "ユーザー", "pontuacao": "a|b;c=d '\""} {
+		if _, err := NewGenericEvent("m", generic("t", map[string]string{"usuario": v}), t0); err != nil {
+			t.Errorf("%s: valor imprimivel recusado: %v", name, err)
+		}
+	}
+}

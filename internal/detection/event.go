@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	psychoscopev1 "github.com/psychoscope-io/psychoscope-proto/gen/go/psychoscope/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -77,7 +79,8 @@ var genericNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 var ErrInvalidGeneric = errors.New("evento generico invalido")
 
 // NewGenericEvent normaliza um EventoGenerico depois de conferir os limites do contrato (tipo e
-// chaves em [a-z0-9._-] de ate 64 caracteres, ate 32 atributos, valores de ate 256 bytes).
+// chaves em [a-z0-9._-] de ate 64 caracteres, ate 32 atributos, valores de ate 256 bytes, UTF-8 valido e
+// sem caracteres de controle).
 // O timestamp do modulo vale ate maxGenericSkew a frente de arrival; alem disso o evento e
 // rejeitado. Devolve ErrInvalidGeneric (embrulhado, com o motivo) se algo for violado.
 func NewGenericEvent(module string, g *psychoscopev1.EventoGenerico, arrival time.Time) (*Event, error) {
@@ -105,8 +108,26 @@ func validateGeneric(g *psychoscopev1.EventoGenerico) error {
 		if len(v) > maxGenericValueSize {
 			return fmt.Errorf("valor do atributo %q com %d bytes (maximo %d)", k, len(v), maxGenericValueSize)
 		}
+		if !printable(v) {
+			return fmt.Errorf("valor do atributo %q com caractere de controle ou UTF-8 invalido", k)
+		}
 	}
 	return nil
+}
+
+// printable informa se s e UTF-8 valido e sem caracteres de controle. Os valores vao parar no
+// contexto dos alertas, que a CLI e a TUI mostram: um modulo (que pode ser de terceiros) nao pode
+// injetar sequencias de escape no terminal de quem le o alerta, nem quebrar o layout com quebras de linha.
+func printable(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // instant devolve o instante de ts, ou arrival se ts for ausente ou zero.
