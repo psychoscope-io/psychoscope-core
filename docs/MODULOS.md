@@ -35,6 +35,10 @@ O molde **não tem capability alguma**, roda com `NoNewPrivileges=yes` e só fal
 - O molde usa `MemoryDenyWriteExecute=yes`, que impede memória gravável e executável: módulos em Go, Rust ou Python rodam; runtimes com JIT (Node.js, Java, PyPy) precisam tirar essa linha, documentando o motivo.
 - O molde foi conferido com `systemd-analyze verify` (sem erro de sintaxe), mas não foi iniciado com um módulo de verdade; o módulo de exemplo fará isso.
 
+## Escrever um módulo
+
+O [`mod-example`](https://github.com/psychoscope-io/mod-example) é um módulo completo em Go, escrito só com o contrato, e traz o guia [Como criar um módulo](https://github.com/psychoscope-io/mod-example/blob/main/docs/GUIA.md): o protocolo, o que copiar, os limites e como testar.
+
 ## Eventos
 
 Um módulo sem variante própria no contrato envia o `EventoGenerico`: veja [EVENTOS-GENERICOS.md](EVENTOS-GENERICOS.md) para os limites e para como uma regra o consome.

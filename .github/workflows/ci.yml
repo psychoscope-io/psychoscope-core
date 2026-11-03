@@ -63,4 +63,6 @@ jobs:
           for u in psychoscope psychoscope-sensor; do
             sed 's#^ExecStart=.*#ExecStart=/bin/true#' "deploy/systemd/$u.service" > "/tmp/$u.service"
           done
-          systemd-analyze verify --man=no /tmp/psychoscope.service /tmp/psychoscope-sensor.service
+          # o molde de modulo, com o nome e o ExecStart de um modulo qualquer
+          sed -e 's/MODULO/exemplo/g' -e 's#^ExecStart=.*#ExecStart=/bin/true#' deploy/systemd/psychoscope-module.service.example > /tmp/psychoscope-exemplo.service
+          systemd-analyze verify --man=no /tmp/psychoscope.service /tmp/psychoscope-sensor.service /tmp/psychoscope-exemplo.service
